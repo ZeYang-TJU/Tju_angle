@@ -117,6 +117,7 @@ public:
     cv::Mat TrackMonocular(const cv::Mat &im, const double &timestamp, const vector<IMU::Point>& vImuMeas = vector<IMU::Point>(), string filename="");
 
     void LoadiGPSDirection(vector<double> vTimestamps, ORB_SLAM3::iGPS::Direction* iGPSDirection);
+    void LoadCameraPose(vector<double> &vTimeStamps,vector<Eigen::VectorXf> &vCameraPose);
 
     // This stops local mapping thread (map building) and performs only camera tracking.
     void ActivateLocalizationMode();

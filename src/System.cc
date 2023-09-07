@@ -104,6 +104,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     //Initialize the Tracking thread
     //(it will live in the main thread of execution, the one that called this constructor)
     cout << "Seq. Name: " << strSequence << endl;
+
     mpTracker = new Tracking(this, mpVocabulary, mpFrameDrawer, mpMapDrawer,
                              mpAtlas, mpKeyFrameDatabase, strSettingsFile, mSensor, strSequence);
 
@@ -335,6 +336,12 @@ cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp, const
 void System::LoadiGPSDirection(vector<double> vTimestamps, ORB_SLAM3::iGPS::Direction* iGPSDirection)
 {
     mpTracker->LoadiGPSDirection(vTimestamps,iGPSDirection);
+    return;
+}
+
+void System::LoadCameraPose(vector<double> &vTimeStamps,vector<Eigen::VectorXf> &vCameraPose)
+{
+    mpTracker->LoadCameraPose(vTimeStamps,vCameraPose);
     return;
 }
 

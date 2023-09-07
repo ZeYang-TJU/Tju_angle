@@ -25,7 +25,14 @@ tci: [-56.64203621,63.12893093,202.2751737]
 iGPS.Path: "../../data/MH01/MH01-iGPS-Direction.txt"
 iGPS.Channel: 1
 iGPS.RotationSpeed: 1800
-
+Twi: !!opencv-matrix
+   rows: 4
+   cols: 4
+   dt: f
+   data: [0.633416413615767, -0.773378685422824, 0.0258661148184890, 2441.04749067435,
+      0.773781232682043, 0.633331767808538, -0.0123885363772317, 2359.35585404950,
+      -0.00680080224659596, 0.0278618164909602, 0.999588649530709, 90.2314268933570,
+      0.0, 0.0, 0.0, 1.0]
 
 # Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
 Camera.RGB: 1

@@ -45,6 +45,7 @@ public:
 
     static cv::Mat toCvSE3(const Eigen::Matrix<double,3,3> &R, const Eigen::Matrix<double,3,1> &t);
     static cv::Mat tocvSkewMatrix(const cv::Mat &v);
+    static cv::Mat MatInverse(const cv::Mat &cvT);
 
     static Eigen::Matrix<double,3,1> toVector3d(const cv::Mat &cvVector);
     static Eigen::Matrix<double,3,1> toVector3d(const cv::Point3f &cvPoint);

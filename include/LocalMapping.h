@@ -49,6 +49,7 @@ public:
     void SetTracker(Tracking* pTracker);
 
     void LoadiGPSDirection(ORB_SLAM3::iGPS::Direction iGPSDirection);
+    void GetiGPStoCamTci(vector<cv::Mat> vTci);
 
     // Main function
     void Run();
@@ -112,7 +113,7 @@ public:
     //double mTd; //time offset (ms)
     //double mFixedTd;
 
-    vector<Eigen::Matrix<double,6,1>> vEstimatediGPSRt;
+
 #ifdef REGISTER_TIMES
     vector<double> vdKFInsert_ms;
     vector<double> vdMPCulling_ms;
@@ -152,10 +153,10 @@ protected:
 
     bool mbMonocular;
     bool mbInertial;
-    bool mbiGPSDirection;
-    bool mbiGPSDirInitialized = false; //whether the iGPS is initialized
+    bool mbiGPSDirection = true;
+    bool mbiGPSDirInitialized = true; //whether the iGPS is initialized
     bool mbiGPSFirstBA;
-
+    double iGPSPoseScale;
 
     void ResetIfRequested();
     bool mbResetRequested;
@@ -194,7 +195,7 @@ protected:
     bool mbAcceptKeyFrames;
     std::mutex mMutexAccept;
 
-    void InitializeiGPSDir(bool bFirst = false);
+    void InitializeiGPSDir(vector<Eigen::Matrix4d>& Tcw);
     void InitializeIMU(float priorG = 1e2, float priorA = 1e6, bool bFirst = false);
     void ScaleRefinement();
 
@@ -211,6 +212,10 @@ protected:
 
         //DEBUG
     ofstream f_lm;
+    vector<Eigen::Matrix<double,6,1>> vEstimatediGPSRt;
+    vector<cv::Mat> mvTci;
+    vector<Eigen::Matrix4d> mvTcw;
+    bool mbScaleFixFlag = false;
 };
 
 } //namespace ORB_SLAM

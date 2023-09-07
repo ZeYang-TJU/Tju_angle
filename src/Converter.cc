@@ -214,4 +214,20 @@ std::vector<float> Converter::toEuler(const cv::Mat &R)
     return v_euler;
 }
 
+cv::Mat Converter::MatInverse(const cv::Mat &cvT)
+{
+    Eigen::Matrix4d T = Converter::toMatrix4d(cvT);
+    Eigen::Matrix3d R = T.block<3,3>(0,0);
+    Eigen::Vector3d t = T.block<3,1>(0,3);
+    Eigen::Matrix3d R_inv = R.transpose();
+    Eigen::Vector3d t_inv = - R_inv * t;
+    Eigen::Matrix4d T_inv;
+    T_inv.setIdentity();
+    T_inv.block<3,3>(0,0) = R_inv;
+    T_inv.block<3,1>(0,3) = t_inv;
+
+    cv::Mat cvT_inv = Converter::toCvMat(T_inv);
+    return cvT_inv;
+}
+
 } //namespace ORB_SLAM

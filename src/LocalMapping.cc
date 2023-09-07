@@ -34,7 +34,7 @@ LocalMapping::LocalMapping(System* pSys, Atlas *pAtlas, const float bMonocular, 
     mpSystem(pSys), mbMonocular(bMonocular), mbInertial(bInertial), mbResetRequested(false), mbResetRequestedActiveMap(false), mbFinishRequested(false), mbFinished(true), mpAtlas(pAtlas), bInitializing(false),
     mbAbortBA(false), mbStopped(false), mbStopRequested(false), mbNotStop(false), mbAcceptKeyFrames(true),
     mbNewInit(false), mIdxInit(0), mScale(1.0), mInitSect(0), mbNotBA1(true), mbNotBA2(true), infoInertial(Eigen::MatrixXd::Zero(9,9)),
-    mbiGPSDirection(true)
+    iGPSPoseScale(1.0)
 {
     mnMatchesInliers = 0;
 
@@ -151,9 +151,16 @@ void LocalMapping::Run()
                         Optimizer::LocalInertialBA(mpCurrentKeyFrame, &mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA, bLarge, !mpCurrentKeyFrame->GetMap()->GetIniertialBA2());
                         b_doneLBA = true;
                     }
-                    else if(mbiGPSDirInitialized)
+                    //else if(mbiGPSDirInitialized)
+                    else if(mbiGPSDirInitialized && (mpAtlas->KeyFramesInMap())>=40 && mbMonocular && !mvTci.empty())
                     {
-                        Optimizer::LocaliGPSDirBA(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA);
+                        Optimizer::LocaliGPSDirBA(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA,iGPSPoseScale,mvTci,mvTcw,mbScaleFixFlag,mbMonocular);
+                        mbScaleFixFlag = true;
+                        b_doneLBA = true;
+                    }
+                    else if(mbiGPSDirInitialized && !mvTci.empty())
+                    {
+                        Optimizer::LocaliGPSDirBA(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA,iGPSPoseScale,mvTci,mvTcw,mbScaleFixFlag, mbMonocular);
                         b_doneLBA = true;
                     }
                     else
@@ -161,7 +168,6 @@ void LocalMapping::Run()
                         Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA);
                         b_doneLBA = true;
                     }
-
                 }
 #ifdef REGISTER_TIMES
                 std::chrono::steady_clock::time_point time_EndLBA = std::chrono::steady_clock::now();
@@ -193,11 +199,10 @@ void LocalMapping::Run()
                         InitializeIMU(1e2, 1e5, true);
                 }
 
-                if(mbiGPSDirection)
-                {
-                    if (mbMonocular)
-                        InitializeiGPSDir(true);
-                }
+                //if(mbiGPSDirection)
+                //{
+                //    InitializeiGPSDir(mvTcw);
+                //}
 
                 // Check redundant local Keyframes
                 KeyFrameCulling();
@@ -208,6 +213,11 @@ void LocalMapping::Run()
                 timeKFCulling_ms = std::chrono::duration_cast<std::chrono::duration<double,std::milli> >(time_EndKFCulling - time_EndLBA).count();
                 vdKFCullingSync_ms.push_back(timeKFCulling_ms);
 #endif
+
+                //if((mpAtlas->KeyFramesInMap())>40 && mpAtlas->KeyFramesInMap()%10 ==0)
+                //{
+                //    mbScaleFixFlag = false;
+                //}
 
                 if ((mTinit<100.0f) && mbInertial)
                 {
@@ -1437,7 +1447,13 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
     return;
 }
 
-void LocalMapping::InitializeiGPSDir(bool bFirst)
+void LocalMapping::GetiGPStoCamTci(vector<cv::Mat> vTci)
+{
+    mvTci = vTci;
+    return;
+};
+
+void LocalMapping::InitializeiGPSDir(vector<Eigen::Matrix4d>& Tcw)
 {
     if (mbResetRequested)
         return;
@@ -1488,21 +1504,31 @@ void LocalMapping::InitializeiGPSDir(bool bFirst)
 
     mInitTime = mpTracker->mLastFrame.mTimeStamp-vpKF.front()->mTimeStamp;
 
-    Eigen::Matrix3d R = Eigen::Matrix3d::Identity();
-    Eigen::Vector3d t = Eigen::Vector3d::Zero();
+    Eigen::Matrix4d Twc = Eigen::Matrix4d::Identity();
+    //Eigen::Matrix4d Tcw = Eigen::Matrix4d::Identity();
     //initial estimation
-    Optimizer::iGPSDirectionOptimization(mpAtlas->GetCurrentMap(),R,t);
-    Eigen::Vector3d eulerAngle = R.eulerAngles(2, 1, 0);
-    Eigen::Matrix<double,6,1> EstimatediGPSRt = Eigen::Matrix<double,6,1>(eulerAngle.x(),eulerAngle.y(),eulerAngle.z(),t.x(),t.y(),t.z());
-    cout << "EstimatediGPSRt.transpose() = "<< EstimatediGPSRt.transpose() <<endl;
-    //if(t(0,0) != 0.0)
-    //{eulerAngle.x()
-    //    //Successful initialization
-    //    cout<< "iGPS Initialization Success" <<endl;
-    //    cout<< "Initial iGPS R = " << R <<endl;
-    //    cout<< "Initial iGPS t = " << t <<endl;
-    //    //mbiGPSDirInitialized = true;
-    //}
+    for(auto i = 0; i < mvTci.size(); i++)
+    {
+        //int ch = mpCurrentKeyFrame->mChannel[i];
+        Optimizer::iGPSDirectionOptimization(mpAtlas->GetCurrentMap(),Twc, i+1);
+        Eigen::Matrix3d Rwc = Twc.block<3,3>(0,0);
+        Eigen::Vector3d twc = Twc.block<3,1>(0,3);
+
+        //cout << "Tcw = "<< Twc.inverse().block<3,1>(0,3).transpose() <<endl;
+        mvTcw.push_back(Twc.inverse());
+
+        if(Twc(0,3) != 0.0)
+        {
+            //Successful initialization
+            //cout<< "iGPS Initialization Success" <<endl;
+            //cout << "Twc = "<< Twc <<endl;
+            cout << "Channel " << i+1 <<" iGPS transmitter initialization Success, Tcw = "<< Twc.inverse() <<endl;
+            //cout<< "Initial iGPS R = " << R <<endl;
+            //cout<< "Initial iGPS t = " << t <<endl;
+            mbiGPSDirInitialized = true;
+            mbiGPSDirection = false;
+        }
+    }
 
     //Eigen::Quaterniond qr(rMatrix3d);
     //cout<< "rMatrix q = " << qr <<endl;

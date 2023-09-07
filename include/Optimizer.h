@@ -116,8 +116,10 @@ public:
     void static InertialOptimization(Map *pMap, Eigen::Vector3d &bg, Eigen::Vector3d &ba, float priorG = 1e2, float priorA = 1e6);
     void static InertialOptimization(vector<KeyFrame*> vpKFs, Eigen::Vector3d &bg, Eigen::Vector3d &ba, float priorG = 1e2, float priorA = 1e6);
     void static InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &scale);
-    void static LocaliGPSDirBA(KeyFrame* pKF, bool *pbStopFlag, Map *pMap, int& num_fixedKF, int& num_OptKF, int& num_MPs, int& num_edges);
-    void static iGPSDirectionOptimization(Map *pMap,Eigen::Matrix3d& R,Eigen::Vector3d& t);
+
+    //Tci denotes the iGPS pose in camera frame
+    void static LocaliGPSDirBA(KeyFrame* pKF, bool *pbStopFlag, Map *pMap, int& num_fixedKF, int& num_OptKF, int& num_MPs, int& num_edges, double& iGPSPoseScale, vector<cv::Mat>& vTci, vector<Eigen::Matrix4d>& vTcw,bool bScaleFixFlag, bool bMonocular);
+    void static iGPSDirectionOptimization(Map *pMap,Eigen::Matrix4d& T, int Channel);
 };
 
 } //namespace ORB_SLAM3

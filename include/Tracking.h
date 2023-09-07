@@ -88,8 +88,12 @@ public:
     void SetStepByStep(bool bSet);
 
     void LoadiGPSDirection(vector<double> vTimestamps, ORB_SLAM3::iGPS::Direction* iGPSDirection);
-
+    void LoadCameraPose(vector<double> &vTimeStamps,vector<Eigen::VectorXf> &vCameraPose);
     void InitializeiGPS(KeyFrame* pKFini, KeyFrame* pKFcur);
+    void GetiGPSMeasurement();
+    void GetiGPSDirectionMeasurement();
+    void GetInitialCamPoseTcw(const double ,cv::Mat &);
+
     // Load new settings
     // The focal lenght should be similar or scale prediction will fail when projecting points
     void ChangeCalibration(const string &strSettingPath);
@@ -100,8 +104,6 @@ public:
     void UpdateFrameIMU(const float s, const IMU::Bias &b, KeyFrame* pCurrentKeyFrame);
     void UpdateFrameiGPS(const float s, KeyFrame* pCurrentKeyFrame);
 
-    void GetiGPSMeasurement();
-    void GetiGPSDirectionMeasurement();
     KeyFrame* GetLastKeyFrame()
     {
         return mpLastKeyFrame;
@@ -146,9 +148,11 @@ public:
     std::vector<cv::Point3f> mvIniP3D;
     Frame mInitialFrame;
 
-    vector<double> mviGPSTimestamps;
     //vector<Eigen::Matrix<double,6,1>> mviGPSPosition;
-
+    vector<double> mviGPSTimestamps;
+    ORB_SLAM3::iGPS::Direction* miGPSAllDirection;
+    vector<double> mvCamTimestamps;
+    vector<Eigen::VectorXf> mvCamPose;
     // Lists used to recover the full camera trajectory at the end of the execution.
     // Basically we store the reference keyframe for each frame and its relative transformation
     list<cv::Mat> mlRelativeFramePoses;
@@ -171,7 +175,6 @@ public:
     double t0; // time-stamp of first read frame
     double t0vis; // time-stamp of first inserted keyframe
     double t0IMU; // time-stamp of IMU initialization
-    ORB_SLAM3::iGPS::Direction* miGPSAllDirection;
 
     vector<MapPoint*> GetLocalMapMPS();
 
@@ -367,7 +370,8 @@ protected:
 
     long CountLines(string filename);
 
-public:
+    vector<cv::Mat> vTwi,vTci;
+    public:
     cv::Mat mImRight;
 };
 

@@ -36,10 +36,12 @@ void LoadKeyPointAndDescriptor(vector<vector<cv::Point2f>> &KeyPoint, vector<cv:
 
 void LoadiGPS(vector<Eigen::Matrix<double,6,1>> &iGPSPosition,vector<double> &vTimestampsiGPS);
 
-int LoadiGPSDirection(ORB_SLAM3::iGPS::Direction* iGPSDirection,vector<double> &vTimestampsiGPS,const string &strSettingsFile);
+int LoadiGPSDirection(vector<double> &vTimestampsiGPS,ORB_SLAM3::iGPS::Direction* iGPSDirection,const string &strSettingsFile);
+
+int LoadCamPose(vector<double> &vTimeStamps,vector<Eigen::VectorXf> &vCameraPose,const string &strFilePath);
 
 int main(int argc, char **argv)
-{  
+{
     if(argc < 5)
     {
         cerr << endl << "Usage: ./mono_euroc path_to_vocabulary path_to_settings path_to_sequence_folder_1 path_to_times_file_1 (path_to_image_folder_2 path_to_times_file_2 ... path_to_image_folder_N path_to_times_file_N) (trajectory_file_name)" << endl;
@@ -77,10 +79,9 @@ int main(int argc, char **argv)
         tot_images += nImages[seq];
     }
 
-    ORB_SLAM3::iGPS::Direction* iGPSDirection = new ORB_SLAM3::iGPS::Direction[5000];
+    ORB_SLAM3::iGPS::Direction* iGPSDirection = new ORB_SLAM3::iGPS::Direction[10000];
     vector<double> vTimestampsiGPSDir;
-    int ret = LoadiGPSDirection(iGPSDirection,vTimestampsiGPSDir,argv[2]);
-
+    int ret = LoadiGPSDirection(vTimestampsiGPSDir,iGPSDirection,argv[2]);
     if(1 == ret)
     {
         cout << "Read fsSettings fails";
@@ -89,6 +90,16 @@ int main(int argc, char **argv)
     else if(2 == ret)
     {
         cout<< "Read iGPSDataFile fails";
+        return 1;
+    }
+
+    const string strFilePath = "./MH01_GT.txt";
+    vector<double> vTimeStamps; //Camera Pose TimeStamps
+    vector<Eigen::VectorXf> vCameraPose;
+    ret = LoadCamPose(vTimeStamps,vCameraPose,strFilePath);
+    if(2 == ret)
+    {
+        cout<< "Read CamPoseFile fails";
         return 1;
     }
 
@@ -104,6 +115,9 @@ int main(int argc, char **argv)
 
     if(!vTimestampsiGPSDir.empty())
         SLAM.LoadiGPSDirection(vTimestampsiGPSDir,iGPSDirection);
+
+    if(!vTimeStamps.empty())
+        SLAM.LoadCameraPose(vTimeStamps,vCameraPose);
 
     std::chrono::steady_clock::time_point test_start = std::chrono::steady_clock::now();
 
@@ -126,20 +140,20 @@ int main(int argc, char **argv)
                 return 1;
             }
 
-    #ifdef COMPILEDWITHC11
+#ifdef COMPILEDWITHC11
             std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
-    #else
+#else
             std::chrono::monotonic_clock::time_point t1 = std::chrono::monotonic_clock::now();
-    #endif
+#endif
 
             // Pass the image to the SLAM system
             SLAM.TrackMonocular(im,tframe);
 
-    #ifdef COMPILEDWITHC11
+#ifdef COMPILEDWITHC11
             std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
-    #else
+#else
             std::chrono::monotonic_clock::time_point t2 = std::chrono::monotonic_clock::now();
-    #endif
+#endif
 
 #ifdef REGISTER_TIMES
             double t_track = std::chrono::duration_cast<std::chrono::duration<double,std::milli> >(t2 - t1).count();
@@ -217,8 +231,54 @@ void LoadImages(const string &strImagePath, const string &strPathTimes,
     }
 }
 
+int LoadCamPose(vector<double> &vTimeStamps,vector<Eigen::VectorXf> &vCameraPose,const string &strFilePath)
+{
+    // Load Camera pose file
+    ifstream fTimes;
+    fTimes.open(strFilePath);
+
+    if(!fTimes)
+        return 2;
+
+    long index = 0;
+
+    while(!fTimes.eof()) {
+
+        string s;
+        getline(fTimes, s);
+        if(s[0] == '#')
+            continue;
+
+        if (!s.empty())
+        {
+            stringstream ss;
+            ss << s;
+
+            double t, x, y, z, qw, qx, qy, qz;  // Frame
+            Eigen::VectorXf CameraPose(7);
+            ss >> t; ss >> x; ss >> y; ss >> z; ss >> qw; ss >> qx; ss >> qy; ss >> qz;  //Euler Angle
+            //cout << "t = " << t <<endl;
+            //cout << "x = " << x <<endl;
+            //cout << "y = " << y <<endl;
+            //cout << "z = " << z <<endl;
+            //cout << "qw = " << qw <<endl;
+            //cout << "qx = " << qx <<endl;
+            //cout << "qy = " << qy <<endl;
+            //cout << "qz = " << qz <<endl;
+            CameraPose <<x,y,z,qw,qx,qy,qz;
+            vTimeStamps.push_back(t);
+            vCameraPose.push_back(CameraPose);
+        }
+
+        index++;
+
+    }
+    cout << "end read iGPS data" << endl;
+    return 0;
+}
+
 //iGPSDirection - ChannelTransmitterTimeDirection
-int LoadiGPSDirection(ORB_SLAM3::iGPS::Direction* iGPSDirection,vector<double> &vTimestampsiGPS,const string &strSettingsFile)
+int LoadiGPSDirection(vector<double> &vTimestampsiGPS,ORB_SLAM3::iGPS::Direction* iGPSDirection,const string &strSettingsFile)
 {
     int nChannel,nRotationSpeed;
     string nPath;
@@ -266,11 +326,12 @@ int LoadiGPSDirection(ORB_SLAM3::iGPS::Direction* iGPSDirection,vector<double> &
             stringstream ss;
             ss << s;
 
-            double ch, trm, t, d1, d2, d3, a1, a2;  // Frame
+            double trm, t, d1, d2, d3, a1, a2;  // Frame
+            int ch;
             //ss >> ch; ss >> trm;
-            ss >> t; ss >> d1; ss >> d2; ss >> d3; ss >> a1; ss >> a2;  //Euler Angle
+            ss >> t; ss>> ch; ss >> d1; ss >> d2; ss >> d3; ss >> a1; ss >> a2;  //Euler Angle
 
-            iGPSDirection[index].channel = nChannel;
+            iGPSDirection[index].channel = ch;
             iGPSDirection[index].transmitter = nRotationSpeed;
             iGPSDirection[index].time = t;
             iGPSDirection[index].dir = Eigen::Vector3d(d1,d2,d3);
@@ -279,9 +340,7 @@ int LoadiGPSDirection(ORB_SLAM3::iGPS::Direction* iGPSDirection,vector<double> &
             //vTimestampsiGPS.push_back(t);
             //iGPSPosition.push_back(PositionCoord);
         }
-
         index++;
-
     }
     cout << "end read iGPS data" << endl;
     //for(int i = 0 ; i < 5000 ; i ++ )
