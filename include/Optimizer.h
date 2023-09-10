@@ -50,7 +50,12 @@ public:
     void static BundleAdjustment(const std::vector<KeyFrame*> &vpKF, const std::vector<MapPoint*> &vpMP,
                                  int nIterations = 5, bool *pbStopFlag=NULL, const unsigned long nLoopKF=0,
                                  const bool bRobust = true);
+    void static GlobalViBundleAdjustemnt(const std::vector<KeyFrame*> &vpKF, const std::vector<MapPoint*> &vpMP,
+                                 vector<cv::Mat>& mvTci, bool mbMonocular, int nIterations = 5, bool *pbStopFlag=NULL, const unsigned long nLoopKF=0,
+                                 const bool bRobust = true);
     void static GlobalBundleAdjustemnt(Map* pMap, int nIterations=5, bool *pbStopFlag=NULL,
+                                       const unsigned long nLoopKF=0, const bool bRobust = true);
+    void static GlobalVisualiGPSBundleAdjustemnt(Map* pMap, vector<cv::Mat>& mvTci, bool mbMonocular, int nIterations=5, bool *pbStopFlag=NULL,
                                        const unsigned long nLoopKF=0, const bool bRobust = true);
     void static FullInertialBA(Map *pMap, int its, const bool bFixLocal=false, const unsigned long nLoopKF=0, bool *pbStopFlag=NULL, bool bInit=false, float priorG = 1e2, float priorA=1e6, Eigen::VectorXd *vSingVal = NULL, bool *bHess=NULL);
 
@@ -118,7 +123,7 @@ public:
     void static InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &scale);
 
     //Tci denotes the iGPS pose in camera frame
-    void static LocaliGPSDirBA(KeyFrame* pKF, bool *pbStopFlag, Map *pMap, int& num_fixedKF, int& num_OptKF, int& num_MPs, int& num_edges, double& iGPSPoseScale, vector<cv::Mat>& vTci, vector<Eigen::Matrix4d>& vTcw,bool bScaleFixFlag, bool bMonocular);
+    void static LocaliGPSDirBA(KeyFrame* pKF, bool *pbStopFlag, Map *pMap, int& num_fixedKF, int& num_OptKF, int& num_MPs, int& num_edges, double& iGPSPoseScale, vector<cv::Mat>& vTci, vector<Eigen::Matrix4d>& vTcw,bool bScaleFixFlag, bool bMonocular, list<KeyFrame*> lKF);
     void static iGPSDirectionOptimization(Map *pMap,Eigen::Matrix4d& T, int Channel);
 };
 

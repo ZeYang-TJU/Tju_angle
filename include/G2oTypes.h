@@ -1073,6 +1073,7 @@ public:
     }
 };
 
+/*
 class EdgeiGPSDir6DoFPose:public g2o::BaseMultiEdge<3,Eigen::Vector3d>
 {
 public:
@@ -1119,6 +1120,58 @@ public:
           cout << "GT = " << GT.transpose() <<endl;
           cout << "Differences = " << result.transpose() <<endl;
         }
+    }
+};*/
+
+class EdgeiGPSDir6DoFPose:public g2o::BaseMultiEdge<4,Eigen::Vector4d>
+{
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+
+    EdgeiGPSDir6DoFPose()
+    {
+        resize(2);
+    };
+
+    virtual bool read(std::istream& is) override{};
+
+    virtual bool write(std::ostream& os) const override{};
+
+    virtual void computeError() override
+    {
+        _error = Eigen::Vector4d(0.0,0.0,0.0,0.0);   //error initialization
+        const g2o::VertexSE3Expmap * v1 = static_cast<const g2o::VertexSE3Expmap*>(_vertices[0]);    //Tcw
+        Eigen::Matrix3d rwc = v1->estimate().rotation().toRotationMatrix().transpose();
+        Eigen::Vector3d tcw = v1->estimate().translation();
+        Eigen::Vector3d t = - rwc * tcw;   //up-to-scale cam pose
+
+        const g2o::VertexSE3Expmap* v2 = static_cast<const g2o::VertexSE3Expmap*>(_vertices[1]);  // iGPS Position in camera frame
+        Eigen::Matrix3d Rci = v2->estimate().rotation().toRotationMatrix();
+        Eigen::Vector3d tci = v2->estimate().translation();
+
+        Eigen::Vector4d obs4d(_measurement);
+        Eigen::Vector3d obs = obs4d.block<3,1>(0,0);
+        Eigen::Vector3d GT = Rci * obs;
+        //Eigen::Vector3d iGPSPosition = Tci.block<3,1>(0,3);    //scaled iGPS Position w.r.t camera frame
+        Eigen::Vector3d iGPSPosition = tci;    //scaled iGPS Position w.r.t camera frame
+
+        Eigen::Vector3d measurement = (t-iGPSPosition)/(t-iGPSPosition).norm();
+
+        Eigen::Vector3d result = measurement - GT;
+        double angle = acos(measurement.transpose() * GT);
+        //measurement - GT
+        _error = Eigen::Vector4d(result.x(),result.y(),result.z(),angle);
+        //cout << "_error = " << _error <<endl;
+
+        //cout << "CamDir = " << CamDir.transpose() <<endl;
+        //if(result.norm()>0.1)
+        //{
+        //    cout << "t = " << t.transpose() <<endl;
+        //    cout << "iGPSPosition = " << iGPSPosition.transpose() <<endl;
+        //    cout << "measurement = " << measurement.transpose() <<endl;
+        //    cout << "GT = " << GT.transpose() <<endl;
+        //    cout << "Differences = " << result.transpose() <<endl;
+        //}
     }
 };
 

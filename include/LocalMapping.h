@@ -204,7 +204,7 @@ protected:
     Eigen::MatrixXd infoInertial;
     int mNumLM;
     int mNumKFCulling;
-
+    list<KeyFrame*> mlKF;
     float mTinit;
 
     int countRefinement;

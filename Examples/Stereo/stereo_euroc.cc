@@ -33,7 +33,7 @@ void LoadImages(const string &strPathLeft, const string &strPathRight, const str
 
 int LoadiGPSDirection(vector<double> &vTimestampsiGPS,ORB_SLAM3::iGPS::Direction* iGPSDirection,const string &strSettingsFile);
 
-int LoadCamPose(vector<double> &vTimeStamps,vector<Eigen::VectorXf> &vCameraPose,const string &strFilePath);
+int LoadCamPose(vector<double> &vTimeStampsGT,vector<Eigen::VectorXf> &vCameraPose,const string &strFilePath);
 
 int main(int argc, char **argv)
 {  
@@ -136,9 +136,10 @@ int main(int argc, char **argv)
     }
 
     const string strFilePath = "./MH05_GT.txt";
-    vector<double> vTimeStamps; //Camera Pose TimeStamps
+    cout << "strFilePath = " << strFilePath <<endl;
+    vector<double> vTimeStampsGT; //Camera Pose TimeStamps
     vector<Eigen::VectorXf> vCameraPose;
-    ret = LoadCamPose(vTimeStamps,vCameraPose,strFilePath);
+    ret = LoadCamPose(vTimeStampsGT,vCameraPose,strFilePath);
     if(2 == ret)
     {
         cout<< "Read CamPoseFile fails";
@@ -158,8 +159,8 @@ int main(int argc, char **argv)
     if(!vTimestampsiGPSDir.empty())
         SLAM.LoadiGPSDirection(vTimestampsiGPSDir,iGPSDirection);
 
-    if(!vTimeStamps.empty())
-        SLAM.LoadCameraPose(vTimeStamps,vCameraPose);
+    if(!vTimeStampsGT.empty())
+        SLAM.LoadCameraPose(vTimeStampsGT,vCameraPose);
 
     cv::Mat imLeft, imRight, imLeftRect, imRightRect;
     for (seq = 0; seq<num_seq; seq++)
@@ -301,7 +302,7 @@ void LoadImages(const string &strPathLeft, const string &strPathRight, const str
 }
 
 
-int LoadCamPose(vector<double> &vTimeStamps,vector<Eigen::VectorXf> &vCameraPose,const string &strFilePath)
+int LoadCamPose(vector<double> &vTimeStampsGT,vector<Eigen::VectorXf> &vCameraPose,const string &strFilePath)
 {
     // Load Camera pose file
     ifstream fTimes;
@@ -336,7 +337,7 @@ int LoadCamPose(vector<double> &vTimeStamps,vector<Eigen::VectorXf> &vCameraPose
             //cout << "qy = " << qy <<endl;
             //cout << "qz = " << qz <<endl;
             CameraPose <<x,y,z,qw,qx,qy,qz;
-            vTimeStamps.push_back(t);
+            vTimeStampsGT.push_back(t);
             vCameraPose.push_back(CameraPose);
         }
 
@@ -369,6 +370,7 @@ int LoadiGPSDirection(vector<double> &vTimestampsiGPS,ORB_SLAM3::iGPS::Direction
         if(!node.empty() && node.isString())
         {
             node>> nPath;
+            cout << " nPath = " << nPath <<endl;
         }
     }
     else

@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="stereo_euroc" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="../Vocabulary/ORBvoc.txt ./Stereo/EuRoC.yaml ../../data/MH01 ./Stereo/EuRoC_TimeStamps/MH01.txt dataset-MH01_stereo" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" WORKING_DIR="file://$PROJECT_DIR$/Examples" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ORB_SLAM3" TARGET_NAME="stereo_euroc" CONFIG_NAME="Release" RUN_TARGET_PROJECT_NAME="ORB_SLAM3" RUN_TARGET_NAME="stereo_euroc">
+  <configuration default="false" name="stereo_euroc" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="../Vocabulary/ORBvoc.txt ./Stereo/EuRoC.yaml ../../data/MH05 ./Stereo/EuRoC_TimeStamps/MH05.txt dataset-MH05_stereo" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" WORKING_DIR="file://$PROJECT_DIR$/Examples" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ORB_SLAM3" TARGET_NAME="stereo_euroc" CONFIG_NAME="Release" RUN_TARGET_PROJECT_NAME="ORB_SLAM3" RUN_TARGET_NAME="stereo_euroc">
     <method v="2">
       <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
     </method>

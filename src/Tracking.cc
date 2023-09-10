@@ -3152,12 +3152,10 @@ bool Tracking::NeedNewKeyFrame()
         // Otherwise send a signal to interrupt BA
         if(bLocalMappingIdle)
         {
-            cout << "test " <<endl;
             return true;
         }
         else
         {
-            cout << "test 2" <<endl;
             mpLocalMapper->InterruptBA();
             if(mSensor!=System::MONOCULAR  && mSensor!=System::IMU_MONOCULAR)
             {
@@ -4288,13 +4286,13 @@ void Tracking::LoadCameraPose(vector<double> &vTimeStamps,vector<Eigen::VectorXf
 void Tracking::GetInitialCamPoseTcw(const double mTimeStamp, cv::Mat &Tcw)
 {
     double t_frame = mTimeStamp;
-    cout<< "t_frame = " << t_frame <<endl;
+    //cout<< "t_frame = " << t_frame <<endl;
     for(int m = 0 ; m < mvCamTimestamps.size()-1 ; m ++ )
     {
-        double t_iGPS = mviGPSTimestamps[m]/1e9;
-        double t_iGPS_next = mviGPSTimestamps[m+1]/1e9;
-        cout<< "t_iGPS = "   << t_iGPS <<endl;
-        cout<< "t_iGPS_next = " << t_iGPS_next <<endl;
+        double t_iGPS = mvCamTimestamps[m]/1e9;
+        double t_iGPS_next = mvCamTimestamps[m+1]/1e9;
+        //cout<< "t_iGPS = "   << t_iGPS <<endl;
+        //cout<< "t_iGPS_next = " << t_iGPS_next <<endl;
 
         if(t_frame >= t_iGPS -0.005 && t_frame <= t_iGPS +0.005)  //5ms
         {
@@ -4333,9 +4331,8 @@ void Tracking::GetInitialCamPoseTcw(const double mTimeStamp, cv::Mat &Tcw)
             T.block<3,1>(0,3) = t_inv;
             //cout << "T = " << T <<endl;
             Tcw = Converter::toCvMat(T);
-            cout <<"CamPose = " << CamPose.transpose() <<endl;
-
-            cout <<"Tcw = " << Tcw <<endl;
+            //cout <<"CamPose = " << CamPose.transpose() <<endl;
+            //cout <<"Tcw = " << Tcw <<endl;
             break;
         }
         else if(t_frame > t_iGPS  && t_frame < t_iGPS_next && t_iGPS_next-t_iGPS<0.5)  //500ms

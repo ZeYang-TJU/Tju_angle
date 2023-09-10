@@ -99,6 +99,13 @@ void LocalMapping::Run()
             double timeMPCulling = std::chrono::duration_cast<std::chrono::duration<double,std::milli> >(time_EndMPCulling - time_EndProcessKF).count();
             vdMPCulling_ms.push_back(timeMPCulling);
 #endif
+            if(mlKF.size()<10)
+                mlKF.push_back(mpCurrentKeyFrame);
+            else
+            {
+                mlKF.pop_front();
+                mlKF.push_back(mpCurrentKeyFrame);
+            }
             // Triangulate new MapPoints
             CreateNewMapPoints();
 
@@ -154,13 +161,13 @@ void LocalMapping::Run()
                     //else if(mbiGPSDirInitialized)
                     else if(mbiGPSDirInitialized && (mpAtlas->KeyFramesInMap())>=40 && mbMonocular && !mvTci.empty())
                     {
-                        Optimizer::LocaliGPSDirBA(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA,iGPSPoseScale,mvTci,mvTcw,mbScaleFixFlag,mbMonocular);
+                        Optimizer::LocaliGPSDirBA(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA,iGPSPoseScale,mvTci,mvTcw,mbScaleFixFlag,mbMonocular,mlKF);
                         mbScaleFixFlag = true;
                         b_doneLBA = true;
                     }
                     else if(mbiGPSDirInitialized && !mvTci.empty())
                     {
-                        Optimizer::LocaliGPSDirBA(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA,iGPSPoseScale,mvTci,mvTcw,mbScaleFixFlag, mbMonocular);
+                        Optimizer::LocaliGPSDirBA(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA,iGPSPoseScale,mvTci,mvTcw,mbScaleFixFlag, mbMonocular,mlKF);
                         b_doneLBA = true;
                     }
                     else
@@ -189,7 +196,6 @@ void LocalMapping::Run()
                 }
 
 #endif
-
                 // Initialize IMU here
                 if(!mpCurrentKeyFrame->GetMap()->isImuInitialized() && mbInertial)
                 {
@@ -303,7 +309,7 @@ void LocalMapping::Run()
 
         usleep(3000);
     }
-
+    Optimizer::GlobalVisualiGPSBundleAdjustemnt(mpCurrentKeyFrame->GetMap(),mvTci,mbMonocular,20);
     SetFinish();
 }
 
