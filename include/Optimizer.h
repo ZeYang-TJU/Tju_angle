@@ -37,6 +37,8 @@
 #include "Thirdparty/g2o/g2o/types/types_six_dof_expmap.h"
 #include "Thirdparty/g2o/g2o/core/robust_kernel_impl.h"
 #include "Thirdparty/g2o/g2o/solvers/linear_solver_dense.h"
+#include "G2oTypes.h"
+#include <algorithm>
 
 namespace ORB_SLAM3
 {
@@ -51,11 +53,11 @@ public:
                                  int nIterations = 5, bool *pbStopFlag=NULL, const unsigned long nLoopKF=0,
                                  const bool bRobust = true);
     void static GlobalViBundleAdjustemnt(const std::vector<KeyFrame*> &vpKF, const std::vector<MapPoint*> &vpMP,
-                                 vector<cv::Mat>& mvTci, bool mbMonocular, int nIterations = 5, bool *pbStopFlag=NULL, const unsigned long nLoopKF=0,
+                                 vector<cv::Mat>& mvTci, bool mbMonocular, int nIterations = 5, long weight = 1e5, bool *pbStopFlag=NULL, const unsigned long nLoopKF=0,
                                  const bool bRobust = true);
     void static GlobalBundleAdjustemnt(Map* pMap, int nIterations=5, bool *pbStopFlag=NULL,
                                        const unsigned long nLoopKF=0, const bool bRobust = true);
-    void static GlobalVisualiGPSBundleAdjustemnt(Map* pMap, vector<cv::Mat>& mvTci, bool mbMonocular, int nIterations=5, bool *pbStopFlag=NULL,
+    bool static GlobalVisualiGPSBundleAdjustemnt(Map* pMap, vector<cv::Mat>& mvTci, bool mbMonocular, int nIterations=5, long weight = 1e5, bool *pbStopFlag=NULL,
                                        const unsigned long nLoopKF=0, const bool bRobust = true);
     void static FullInertialBA(Map *pMap, int its, const bool bFixLocal=false, const unsigned long nLoopKF=0, bool *pbStopFlag=NULL, bool bInit=false, float priorG = 1e2, float priorA=1e6, Eigen::VectorXd *vSingVal = NULL, bool *bHess=NULL);
 
@@ -65,6 +67,7 @@ public:
     void static MergeBundleAdjustmentVisual(KeyFrame* pCurrentKF, vector<KeyFrame*> vpWeldingKFs, vector<KeyFrame*> vpFixedKFs, bool *pbStopFlag);
 
     int static PoseOptimization(Frame* pFrame);
+    int static iGPSDirectionPoseOptimization(Frame* pFrame,vector<cv::Mat>& vTci,double weight);
 
     int static PoseInertialOptimizationLastKeyFrame(Frame* pFrame, bool bRecInit = false);
     int static PoseInertialOptimizationLastFrame(Frame *pFrame, bool bRecInit = false);
@@ -123,8 +126,15 @@ public:
     void static InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &scale);
 
     //Tci denotes the iGPS pose in camera frame
-    void static LocaliGPSDirBA(KeyFrame* pKF, bool *pbStopFlag, Map *pMap, int& num_fixedKF, int& num_OptKF, int& num_MPs, int& num_edges, double& iGPSPoseScale, vector<cv::Mat>& vTci, vector<Eigen::Matrix4d>& vTcw,bool bScaleFixFlag, bool bMonocular, list<KeyFrame*> lKF);
+    void static LocaliGPSDirBA(KeyFrame* pKF, bool *pbStopFlag, Map *pMap, int& num_fixedKF, int& num_OptKF, int& num_MPs, int& num_edges, double& iGPSPoseScale, vector<cv::Mat>& vTci, vector<Eigen::Matrix4d>& vTcw,bool bScaleFixFlag, bool bMonocular, list<KeyFrame*> lKF, long weight);
     void static iGPSDirectionOptimization(Map *pMap,Eigen::Matrix4d& T, int Channel);
+
+    template<class T>
+    void static addiGPSDirectionEdge(g2o::SparseOptimizer&,T,vector<cv::Mat>&,vector<EdgeiGPSDir6DoFPose*>&,long weight);
+    void static addiGPSDirectionPoseOptimizationEdge(g2o::SparseOptimizer&,Frame *,vector<cv::Mat>&,vector<EdgeiGPSDir6DoFPose*>&,double weight);
+    void static identifyTransmitter(int Trm,int &i);
+    void static calculateiGPSDirectionWeight(int td, int& weight);
+
 };
 
 } //namespace ORB_SLAM3

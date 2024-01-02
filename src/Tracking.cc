@@ -82,8 +82,7 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     }
 
 
-    cv::Mat mTwi;
-    cv::Mat mTwi2;
+    cv::Mat mTwi,mTwi2,mTwi3;
     bool b_parse_iGPS = true;
     cv::FileNode node = fSettings["Twi"];
 
@@ -125,6 +124,29 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
         std::cerr << "*Twi2 matrix doesn't exist*" << std::endl;
         b_parse_iGPS = true;
     }
+
+    cv::FileNode node3 = fSettings["Twi3"];
+    if(!node3.empty())
+    {
+        mTwi3 = node3.mat();
+        if(mTwi3.rows != 4 || mTwi3.cols != 4)
+        {
+            std::cerr << "*Twi3 matrix have to be a 4x4 transformation matrix*" << std::endl;
+            b_parse_iGPS = true;
+        }
+        else
+        {
+            vTwi.push_back(mTwi3);
+        }
+    }
+    else
+    {
+        std::cerr << "*Twi2 matrix doesn't exist*" << std::endl;
+        b_parse_iGPS = true;
+    }
+
+    GetiGSReceivesInCameraFrame();
+    mPnpWeight = 1e7;
 
     cout << endl;
 
@@ -1333,7 +1355,7 @@ cv::Mat Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat &imRe
 #endif
     GetiGPSDirectionMeasurement();
     Track();
-
+    //usleep(30000);
     return mCurrentFrame.mTcw.clone();
 }
 
@@ -1427,7 +1449,7 @@ cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp,
     lastID = mCurrentFrame.mnId;
     GetiGPSDirectionMeasurement();
     Track();
-
+    usleep(30000);
     return mCurrentFrame.mTcw.clone();
 }
 
@@ -2337,16 +2359,20 @@ void Tracking::StereoInitialization()
         //cout << "Tcw = " << Tcw <<endl;
         //cout << "Twc.inverse() = " << Twc.inv() <<endl;
 
+        //Eigen::Matrix4d temp;
+        //temp.setIdentity();
+        //Tcw = Converter::toCvMat(temp);
+
+        cout << "Tcw = " << Tcw <<endl;
         if(!Tcw.empty())
         {
             for(auto i = 0; i < vTwi.size(); i++ )
             {
                 cv::Mat Tci;
                 Tci = Tcw * vTwi[i];
-                cout << "Tci = " << Tci <<endl;
+                cout << "Tci " << i << " = " << Tci <<endl;
                 vTci.push_back(Tci);
             }
-
             mpLocalMapper->GetiGPStoCamTci(vTci);
         }
         else
@@ -2697,6 +2723,7 @@ bool Tracking::TrackReferenceKeyFrame()
 
     // cout << " TrackReferenceKeyFrame mLastFrame.mTcw:  " << mLastFrame.mTcw << endl;
     Optimizer::PoseOptimization(&mCurrentFrame);
+    //Optimizer::iGPSDirectionPoseOptimization(&mCurrentFrame,vTci,mPnpWeight);
 
     // Discard outliers
     int nmatchesMap = 0;
@@ -2855,6 +2882,7 @@ bool Tracking::TrackWithMotionModel()
 
     // Optimize frame pose with all matches
     Optimizer::PoseOptimization(&mCurrentFrame);
+    //Optimizer::iGPSDirectionPoseOptimization(&mCurrentFrame,vTci,mPnpWeight);
 
     // Discard outliers
     int nmatchesMap = 0;
@@ -2932,13 +2960,17 @@ bool Tracking::TrackLocalMap()
 
     int inliers;
     if (!mpAtlas->isImuInitialized())
+    {
         Optimizer::PoseOptimization(&mCurrentFrame);
+        //Optimizer::iGPSDirectionPoseOptimization(&mCurrentFrame,vTci,mPnpWeight);
+    }
     else
     {
         if(mCurrentFrame.mnId<=mnLastRelocFrameId+mnFramesToResetIMU)
         {
             Verbose::PrintMess("TLM: PoseOptimization ", Verbose::VERBOSITY_DEBUG);
             Optimizer::PoseOptimization(&mCurrentFrame);
+            //Optimizer::iGPSDirectionPoseOptimization(&mCurrentFrame,vTci,mPnpWeight);
         }
         else
         {
@@ -3130,12 +3162,12 @@ bool Tracking::NeedNewKeyFrame()
     {
         if (mSensor==System::IMU_MONOCULAR)
         {
-            if ((mCurrentFrame.mTimeStamp-mpLastKeyFrame->mTimeStamp)>=0.5)
+            if ((mCurrentFrame.mTimeStamp-mpLastKeyFrame->mTimeStamp)>=0.25)
                 c3 = true;
         }
         else if (mSensor==System::IMU_STEREO)
         {
-            if ((mCurrentFrame.mTimeStamp-mpLastKeyFrame->mTimeStamp)>=0.5)
+            if ((mCurrentFrame.mTimeStamp-mpLastKeyFrame->mTimeStamp)>=0.25)
                 c3 = true;
         }
     }
@@ -3670,6 +3702,7 @@ bool Tracking::Relocalization()
                 }
 
                 int nGood = Optimizer::PoseOptimization(&mCurrentFrame);
+                //int nGood = Optimizer::iGPSDirectionPoseOptimization(&mCurrentFrame,vTci,mPnpWeight);
 
                 if(nGood<10)
                     continue;
@@ -3686,6 +3719,7 @@ bool Tracking::Relocalization()
                     if(nadditional+nGood>=50)
                     {
                         nGood = Optimizer::PoseOptimization(&mCurrentFrame);
+                        //nGood = Optimizer::iGPSDirectionPoseOptimization(&mCurrentFrame,vTci,mPnpWeight);
 
                         // If many inliers but still not enough, search by projection again in a narrower window
                         // the camera has been already optimized with many points
@@ -3701,6 +3735,7 @@ bool Tracking::Relocalization()
                             if(nGood+nadditional>=50)
                             {
                                 nGood = Optimizer::PoseOptimization(&mCurrentFrame);
+                                //nGood = Optimizer::iGPSDirectionPoseOptimization(&mCurrentFrame,vTci,mPnpWeight);
 
                                 for(int io =0; io<mCurrentFrame.N; io++)
                                     if(mCurrentFrame.mvbOutlier[io])
@@ -4285,99 +4320,151 @@ void Tracking::LoadCameraPose(vector<double> &vTimeStamps,vector<Eigen::VectorXf
 
 void Tracking::GetInitialCamPoseTcw(const double mTimeStamp, cv::Mat &Tcw)
 {
-    double t_frame = mTimeStamp;
-    //cout<< "t_frame = " << t_frame <<endl;
+    cout << "Start GetInitialCamPoseTcw " <<endl;
+    //double t_frame = mTimeStamp;
+    double t_frame = mTimeStamp*1e6;
+
+    //cout<< "GetInitialCamPoseTcw t_frame = " << t_frame <<endl;
     for(int m = 0 ; m < mvCamTimestamps.size()-1 ; m ++ )
     {
-        double t_iGPS = mvCamTimestamps[m]/1e9;
-        double t_iGPS_next = mvCamTimestamps[m+1]/1e9;
+        double t_iGPS      = mvCamTimestamps[m]  /1e3;
+        double t_iGPS_next = mvCamTimestamps[m+1]/1e3;
+        //double t_iGPS      = mvCamTimestamps[m]  /1e9;
+        //double t_iGPS_next = mvCamTimestamps[m+1]/1e9;
         //cout<< "t_iGPS = "   << t_iGPS <<endl;
         //cout<< "t_iGPS_next = " << t_iGPS_next <<endl;
 
-        if(t_frame >= t_iGPS -0.005 && t_frame <= t_iGPS +0.005)  //5ms
+        if(t_frame >= t_iGPS -0.005 && t_frame <= t_iGPS +0.005)  //10ms
         {
-            //cout<< "Same Time t_frame t_iGPS = " << t_iGPS << endl;
+            cout<< "Same Time t_frame t_iGPS = " << t_frame << " "<<t_iGPS << endl;
             Eigen::VectorXf CamPose(7);
             CamPose = mvCamPose[m];
             //Eigen::Quaterniond q(CamPose[3],CamPose[4],CamPose[5],CamPose[6]);
-            //cout << "qw , qx, qy, qz = " << q.w() <<"," <<q.x() <<","<<q.y()<<","<<q.z()<<endl;
             if(CamPose[0] == 0.0)
                 return;
+
             Eigen::Quaterniond q;
-            q.w() = CamPose[3];
-            q.x() = CamPose[4];
-            q.y() = CamPose[5];
-            q.z() = CamPose[6];
-
-            //Eigen::Matrix3d R = q.toRotationMatrix().transpose();
-            ////Eigen::Matrix3d R = q.normalized().toRotationMatrix();
-            //Eigen::Vector3d t(CamPose[0],CamPose[1],CamPose[2]);
-            //Eigen::Matrix4d T;
-            //T.setIdentity();
-            //T.block<3,3>(0,0) = R;
-            //T.block<3,1>(0,3) = t;
-            ////cout << "T = " << T <<endl;
-            //Twc = Converter::toCvMat(T);
-
+            q.x() = CamPose[3];
+            q.y() = CamPose[4];
+            q.z() = CamPose[5];
+            q.w() = CamPose[6];
+            //cout << "qx, qy, qz, qw = " <<q.x() <<","<<q.y()<<","<<q.z() <<"," << q.w() <<endl;
+            /*  FT */
             Eigen::Matrix3d R = q.toRotationMatrix();
-            //Eigen::Matrix3d R = q.normalized().toRotationMatrix();
             Eigen::Vector3d t(CamPose[0],CamPose[1],CamPose[2]);
-            Eigen::Matrix3d R_inv = R;
-            Eigen::Vector3d t_inv = - R_inv * t;
-
             Eigen::Matrix4d T;
             T.setIdentity();
-            T.block<3,3>(0,0) = R_inv;
-            T.block<3,1>(0,3) = t_inv;
-            //cout << "T = " << T <<endl;
-            Tcw = Converter::toCvMat(T);
+            T.block<3,3>(0,0) = R;
+            T.block<3,1>(0,3) = t;
+            //cout << "Twc = " << T <<endl;
+            Eigen::Matrix4d T2 = T.inverse();
+            Tcw = Converter::toCvMat(T2);
+
+
+
+            /* EuRoC数据集*/
+            //Eigen::Matrix3d R = q.toRotationMatrix();
+            //Eigen::Vector3d t(CamPose[0],CamPose[1],CamPose[2]);
+            //Eigen::Matrix3d R_inv = R;
+            //Eigen::Vector3d t_inv = - R_inv * t;
+            //Eigen::Matrix4d T;
+            //T.setIdentity();
+            //T.block<3,3>(0,0) = R_inv;
+            //T.block<3,1>(0,3) = t_inv;
+            //Tcw = Converter::toCvMat(T);
+
+
             //cout <<"CamPose = " << CamPose.transpose() <<endl;
             //cout <<"Tcw = " << Tcw <<endl;
             break;
         }
-        else if(t_frame > t_iGPS  && t_frame < t_iGPS_next && t_iGPS_next-t_iGPS<0.5)  //500ms
+        else if(t_frame > t_iGPS  && t_frame < t_iGPS_next && t_iGPS_next-t_iGPS<0.02)  //500ms
         {
-            cout<< "Different time t_iGPS = " << t_iGPS << endl;
-            cout<< "Different time t_iGPS_next = " << t_iGPS_next << endl;
-
-            break;
+            //cout << " t_frame = " << t_frame <<endl;
+            //cout<< "Different time t_iGPS = " << t_iGPS << endl;
+            //cout<< "Different time t_iGPS_next = " << t_iGPS_next << endl;
+            //break;
         }
         else if(t_iGPS >= t_frame)
         {
-            cout<< "can't find corresponding iGPS measurements"<<endl;
-            break;
+            //cout<< "can't find corresponding iGPS measurements"<<endl;
+            //break;
         }
     }
     return;
 }
 
+int Tracking::GetiGSReceivesInCameraFrame()
+{
+    cout << "Start read iGSReceivesInCameraFrame File" << endl;
+    const string strSettingsFile = "./Stereo/Pic.txt";
+    ifstream fTimes;
+    fTimes.open(strSettingsFile);
+    if(!fTimes)
+        return 2;
+    while(!fTimes.eof()) {
+        string s;
+        getline(fTimes, s);
+        if(s[0] == '#')
+            continue;
+
+        if (!s.empty())
+        {
+            stringstream ss;
+            ss << s;
+
+            double index, x, y, z;  // Frame
+            int ch;
+            ss >> index; ss>> x; ss >> y;  ss>>z;
+            miGPSReceive.insert(make_pair<int,Eigen::Vector3d>(index,Eigen::Vector3d(x,y,z)));
+        }
+    }
+    cout << "Get " << miGPSReceive.size() << " Receiver Position in Camera Frame" <<endl;
+    cout << " -------------- " << endl;
+
+    cout << "miGPSReceive = " << endl;
+    for(auto i : miGPSReceive)
+        cout << "     " << i.first << " " << i.second.transpose() << endl;
+    cout << " -------------- " << endl;
+
+    cout << "end read Pic" << endl;
+    return 0;
+}
+
 void Tracking::GetiGPSDirectionMeasurement()
 {
-    double MH = 1;
-    double t_frame = mCurrentFrame.mTimeStamp /MH;
+    double FT = 1e6;
+    double t_frame = mCurrentFrame.mTimeStamp * FT;
+    //double t_frame = mCurrentFrame.mTimeStamp;
+
     //cout<< "t_frame = " << t_frame <<endl;
-    //mCurrentFrame.miGPSDirection = Eigen::Vector3d(0.0,0.0,0.0);
-    //mCurrentFrame.miGPSDirAngle  = Eigen::Vector2d(0.0,0.0);
+
     for(int m = 0 ; m < mviGPSTimestamps.size() ; m ++ )
     {
-        double t_iGPS = mviGPSTimestamps[m] /1e9;
-        double t_iGPS_next = mviGPSTimestamps[m+1] /1e9;
+        //double t_iGPS = mviGPSTimestamps[m] /1e9;
+        //double t_iGPS_next = mviGPSTimestamps[m+1] /1e9;
+        double t_iGPS = mviGPSTimestamps[m] /1e3;
+        double t_iGPS_next = mviGPSTimestamps[m+1] /1e3;
         //cout<< "t_iGPS = " << t_iGPS <<endl;
         //cout<< "t_iGPS_next = " << t_iGPS_next <<endl;
 
-        if(t_frame >= t_iGPS -0.005 && t_frame <= t_iGPS +0.005)  //5ms
+        if( abs(t_frame - t_iGPS) <= 0.002 )
         {
-            mCurrentFrame.mChannel.push_back(miGPSAllDirection[m].channel);
+            mCurrentFrame.miGPSChannel.push_back(miGPSAllDirection[m].channel);
+            mCurrentFrame.miGPSTransmitter.push_back(miGPSAllDirection[m].transmitter);
+            mCurrentFrame.miGPStime.push_back(miGPSAllDirection[m].time);
             mCurrentFrame.miGPSDirection.push_back(miGPSAllDirection[m].dir);
-            mCurrentFrame.miGPSDirAngle.push_back(miGPSAllDirection[m].dirAngle);
-            mCurrentFrame.mmiGPSChDir.insert(pair<int, Eigen::Vector3d>(miGPSAllDirection[m].channel,miGPSAllDirection[m].dir));
-            mCurrentFrame.mmiGPSChDirAngle.insert(pair<int, Eigen::Vector2d>(miGPSAllDirection[m].channel,miGPSAllDirection[m].dirAngle));
+            cout << "Same t_frame,t_iGPS, t_iGPS_next= " << t_frame << " " << t_iGPS <<endl;
+            //cout << "miGPSAllDirection[m].dir = " << miGPSAllDirection[m].dir.transpose() <<endl;
+
+            //mCurrentFrame.mmiGPSChDir.insert(pair<int, Eigen::Vector3d>(miGPSAllDirection[m].channel,miGPSAllDirection[m].dir));
+            //mCurrentFrame.mmiGPSChDirAngle.insert(pair<int, Eigen::Vector2d>(miGPSAllDirection[m].channel,miGPSAllDirection[m].dirAngle));
             //cout<< "Same Time t_frame t_iGPS = " << t_iGPS << endl;
             //cout<< "mCurrentFrame.miGPSMeasurement = " << mCurrentFrame.miGPSDirection << endl;
 
             //break;
         }
-        else if(t_frame > t_iGPS  && t_frame < t_iGPS_next && t_iGPS_next-t_iGPS<0.5)  //500ms
+        else if(t_frame > t_iGPS  && t_frame < t_iGPS_next && (t_iGPS_next-t_iGPS)<=0.040)  //40ms
         {
             double t1 = t_frame - t_iGPS;
             double t2 = t_iGPS_next - t_frame;
@@ -4386,18 +4473,14 @@ void Tracking::GetiGPSDirectionMeasurement()
             double x =  w1 * miGPSAllDirection[m].dir.x()      + w2 * miGPSAllDirection[m+1].dir.x();
             double y =  w1 * miGPSAllDirection[m].dir.y()      + w2 * miGPSAllDirection[m+1].dir.y();
             double z =  w1 * miGPSAllDirection[m].dir.z()      + w2 * miGPSAllDirection[m+1].dir.z();
-            double a1 = w1 * miGPSAllDirection[m].dirAngle.x() + w2 * miGPSAllDirection[m+1].dirAngle.x();
-            double a2 = w1 * miGPSAllDirection[m].dirAngle.y() + w2 * miGPSAllDirection[m+1].dirAngle.y();
-            //double r1 = w1* mviGPSPosition[m](3,0) + w2 * mviGPSPosition[m+1](3,0);
-            //double r2 = w1* mviGPSPosition[m](4,0) + w2 * mviGPSPosition[m+1](4,0);
-            //double r3 = w1* mviGPSPosition[m](5,0) + w2 * mviGPSPosition[m+1](5,0);
+            mCurrentFrame.miGPSChannel.push_back(miGPSAllDirection[m].channel);
+            mCurrentFrame.miGPSTransmitter.push_back(miGPSAllDirection[m].transmitter);
+            mCurrentFrame.miGPStime.push_back(miGPSAllDirection[m].time);
             mCurrentFrame.miGPSDirection.push_back(Eigen::Vector3d(x,y,z));
-            mCurrentFrame.miGPSDirAngle.push_back(Eigen::Vector2d(a1,a2));
-
-            //cout<< "Different time t_iGPS = " << t_iGPS << endl;
-            //cout<< "Different time t_iGPS_next = " << t_iGPS_next << endl;
-            //cout<< "mCurrentFrame.miGPSDirection = " << mCurrentFrame.miGPSDirection.transpose() << endl;
-            //cout<< "mCurrentFrame.miGPSDirAngle = " << mCurrentFrame.miGPSDirAngle.transpose() << endl;
+            //cout << "t_frame,t_iGPS, t_iGPS_next= " << t_frame << " " << t_iGPS << " " << t_iGPS_next <<endl;
+            //cout << "t1,t2 = " << t1 << " " << t2 <<endl;
+            //cout << "w1,w2 = " << w1 << " " << w2 <<endl;
+            //cout << "x,y,z = " << x << " " << y << " " <<z <<endl;
             //break;
         }
         else if(t_iGPS >= t_frame)
@@ -4408,13 +4491,7 @@ void Tracking::GetiGPSDirectionMeasurement()
             //break;
         }
     }
-
-    //for(auto i = 0; i < mCurrentFrame.mChannel.size();i++)
-    //{
-    //    cout << "mCurrentFrame.mChannel[i]       = " << mCurrentFrame.mChannel[i]       <<endl;
-    //    cout << "mCurrentFrame.miGPSDirection[i] = " << mCurrentFrame.miGPSDirection[i] <<endl;
-    //    cout << "mCurrentFrame.miGPSDirAngle[i]  = " << mCurrentFrame.miGPSDirAngle[i]  <<endl;
-    //}
+    mCurrentFrame.miGPSReceive = miGPSReceive;
 
     return;
 }

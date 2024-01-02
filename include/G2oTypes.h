@@ -950,10 +950,10 @@ public:
 
         _error = twc - ti - norm * Ri * obs;
         //cout <<  "twc = "<< twc <<endl;
-        //cout << "ti = " <<twc <<endl;
+        //cout << "ti = " <<ti <<endl;
         //cout << "temp = " <<temp <<endl;
-        //cout << "norm = " <<norm <<endl;
-        //cout << "Ri = " <<Rwc <<endl;
+        //cout << "norm * Ri * obs = " <<norm * Ri * obs <<endl;
+        //cout << "Ri = " <<Ri <<endl;
         //cout << "_error = " <<_error <<endl;
 
 
@@ -1021,6 +1021,7 @@ public:
 //    //double _precision;
 //    Eigen::Matrix4d Tci;
 //};
+
 
 class EdgeiGPSDirUptoScale6DoFPose:public g2o::BaseMultiEdge<3,Eigen::Vector3d>
 {
@@ -1121,7 +1122,9 @@ public:
           cout << "Differences = " << result.transpose() <<endl;
         }
     }
-};*/
+};
+*/
+
 
 class EdgeiGPSDir6DoFPose:public g2o::BaseMultiEdge<4,Eigen::Vector4d>
 {
@@ -1130,7 +1133,7 @@ public:
 
     EdgeiGPSDir6DoFPose()
     {
-        resize(2);
+        resize(1);
     };
 
     virtual bool read(std::istream& is) override{};
@@ -1141,39 +1144,157 @@ public:
     {
         _error = Eigen::Vector4d(0.0,0.0,0.0,0.0);   //error initialization
         const g2o::VertexSE3Expmap * v1 = static_cast<const g2o::VertexSE3Expmap*>(_vertices[0]);    //Tcw
-        Eigen::Matrix3d rwc = v1->estimate().rotation().toRotationMatrix().transpose();
+        Eigen::Matrix3d rcw = v1->estimate().rotation().toRotationMatrix();
         Eigen::Vector3d tcw = v1->estimate().translation();
-        Eigen::Vector3d t = - rwc * tcw;   //up-to-scale cam pose
+        Eigen::Vector3d twc = - rcw.transpose() * tcw;   //up-to-scale cam pose
 
-        const g2o::VertexSE3Expmap* v2 = static_cast<const g2o::VertexSE3Expmap*>(_vertices[1]);  // iGPS Position in camera frame
-        Eigen::Matrix3d Rci = v2->estimate().rotation().toRotationMatrix();
-        Eigen::Vector3d tci = v2->estimate().translation();
+        Eigen::Matrix4d Twc;
+        Twc.setIdentity();
+        Twc.block<3,3>(0,0) = rcw.transpose();
+        Twc.block<3,1>(0,3) = twc;
+        Eigen::Vector4d iGPSPosInCam4d = Eigen::Vector4d( miGPSReceive[channel].x(), miGPSReceive[channel].y(),miGPSReceive[channel].z() , 1.0);
+        Eigen::Vector4d iGPSPosition4d = Twc * iGPSPosInCam4d;
+        Eigen::Vector3d iGPSPosition3d = iGPSPosition4d.block<3,1>(0,0);
 
-        Eigen::Vector4d obs4d(_measurement);
-        Eigen::Vector3d obs = obs4d.block<3,1>(0,0);
-        Eigen::Vector3d GT = Rci * obs;
+        Eigen::Matrix3d Rci = Tci.rotation().toRotationMatrix();
+        Eigen::Vector3d tci = Tci.translation();
+
+        //Eigen::Vector4d obs4d(_measurement);
+        //Eigen::Vector3d obs = obs4d.block<3,1>(0,0);
+        Eigen::Vector3d GT = Rci * Dir;
+        GT.normalize();
         //Eigen::Vector3d iGPSPosition = Tci.block<3,1>(0,3);    //scaled iGPS Position w.r.t camera frame
         Eigen::Vector3d iGPSPosition = tci;    //scaled iGPS Position w.r.t camera frame
 
-        Eigen::Vector3d measurement = (t-iGPSPosition)/(t-iGPSPosition).norm();
+        //Eigen::Vector3d measurement = (twc-iGPSPosition)/(twc-iGPSPosition).norm();
+        Eigen::Vector3d measurement = (iGPSPosition3d-iGPSPosition)/(iGPSPosition3d-iGPSPosition).norm();
 
         Eigen::Vector3d result = measurement - GT;
-        double angle = acos(measurement.transpose() * GT);
-        //measurement - GT
-        _error = Eigen::Vector4d(result.x(),result.y(),result.z(),angle);
-        //cout << "_error = " << _error <<endl;
+        //cout << "result = "<< result.transpose() <<endl;
 
-        //cout << "CamDir = " << CamDir.transpose() <<endl;
-        //if(result.norm()>0.1)
+        double angle = acos((measurement.transpose() * GT).norm());
+
+        _error = Eigen::Vector4d(result.x(),result.y(),result.z(),angle);
+        //if(_error.norm()>0.05)
         //{
-        //    cout << "t = " << t.transpose() <<endl;
-        //    cout << "iGPSPosition = " << iGPSPosition.transpose() <<endl;
-        //    cout << "measurement = " << measurement.transpose() <<endl;
-        //    cout << "GT = " << GT.transpose() <<endl;
-        //    cout << "Differences = " << result.transpose() <<endl;
+        //    cout << "iGPSPosition3d = "<< iGPSPosition3d.transpose() <<endl;
+        //    cout << "iGPSPosition = "<< iGPSPosition.transpose() <<endl;
+        //    cout << "measurement = "<< measurement.transpose() <<endl;
+        //    cout << "GT = "<< GT.transpose() <<endl <<endl;
+        //    cout << "_error = "<< _error.transpose() <<endl;
         //}
     }
+    int channel;
+    map<int, Eigen::Vector3d> miGPSReceive;
+    g2o::SE3Quat Tci;
+    Eigen::Vector3d Dir;
 };
+
+/*
+class EdgeiGPSDir6DoFPose:public g2o::BaseMultiEdge<2,Eigen::Vector2d>
+{
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+
+    EdgeiGPSDir6DoFPose()
+    {
+        resize(1);
+    };
+
+    virtual bool read(std::istream& is) override{};
+
+    virtual bool write(std::ostream& os) const override{};
+
+    virtual void computeError() override
+    {
+        _error = Eigen::Vector2d(0.0,0.0);   //error initialization
+        const g2o::VertexSE3Expmap * v1 = static_cast<const g2o::VertexSE3Expmap*>(_vertices[0]);    //Tcw
+        Eigen::Matrix3d rcw = v1->estimate().rotation().toRotationMatrix();
+        Eigen::Vector3d tcw = v1->estimate().translation();
+        Eigen::Vector3d twc = - rcw.transpose() * tcw;   //up-to-scale cam pose
+
+        Eigen::Matrix4d Twc;
+        Twc.setIdentity();
+        Twc.block<3,3>(0,0) = rcw.transpose();
+        Twc.block<3,1>(0,3) = twc;
+        Eigen::Vector4d iGPSPosInCam4d = Eigen::Vector4d( miGPSReceive[channel].x(), miGPSReceive[channel].y(),miGPSReceive[channel].z() , 1.0);
+        Eigen::Vector4d iGPSPosition4d = Twc * iGPSPosInCam4d;
+        Eigen::Vector3d iGPSPosition3d = iGPSPosition4d.block<3,1>(0,0);
+
+        Eigen::Matrix3d Rci = Tci.rotation().toRotationMatrix();
+        Eigen::Vector3d tci = Tci.translation();
+
+        Eigen::Vector3d iGPS_GT = Dir;
+        iGPS_GT.normalize();
+        Eigen::Vector3d iGPSPosition = tci;
+
+        Eigen::Vector3d iGPS_meas = (iGPSPosition3d-iGPSPosition)/(iGPSPosition3d-iGPSPosition).norm();
+        iGPS_meas = Rci.transpose() * iGPS_meas;
+
+        //converter to Panoramic imagng model, origin of frame in iGPS transmitter
+        double u_meas, v_meas;
+        double u_GT  , v_GT;
+        CalculatePixelCoordinate(iGPS_meas,u_meas,v_meas);
+        CalculatePixelCoordinate(iGPS_GT,  u_GT,  v_GT);
+
+        //cout << " iGPS_GT   = " << iGPS_GT <<endl;
+        //cout << " iGPS_meas = " << iGPS_meas <<endl;
+        //cout << " u_meas , v_meas   = " << u_meas << " " << v_meas <<endl;
+        //cout << " u_GT , v_GT = " << u_GT << " " << v_GT <<endl;
+        _error = Eigen::Vector2d(u_meas - u_GT, v_meas - v_GT);
+        //if(_error.norm()>0.01)
+        //{
+            //cout << "_error = " << _error <<endl;
+        //}
+    }
+
+    int channel;
+    map<int, Eigen::Vector3d> miGPSReceive;
+    g2o::SE3Quat Tci;
+    Eigen::Vector3d Dir;
+
+    void CalculatePixelCoordinate(const Eigen::Vector3d direction,double& u, double& v)
+    {
+        double Dx = direction.x(), Dy = direction.y(), Dz = direction.z();
+        double pi = 3.14159265;
+        double elevator = asin(Dz);
+        double azimuth = 0.0;
+        azimuth = asin(Dy/cos(elevator));
+
+        //if(Dy>0.0)
+        //{
+        //    if(Dx>0.0)
+        //    {
+        //        azimuth = asin(Dy/cos(elevator));
+        //    }
+        //    else
+        //    {
+        //        azimuth = pi - asin(Dy/cos(elevator));
+        //    }
+        //}
+        //else
+        //{
+        //    if(Dx>0.0)
+        //    {
+        //        azimuth = 2 * pi + asin(Dy/cos(elevator));
+        //    }
+        //    else
+        //    {
+        //        azimuth = pi - asin(Dy/cos(elevator));
+        //    }
+        //}
+
+        double yita = tan(elevator);
+        double yipth = azimuth;
+        int nC = 5000,nR = 5000;
+        double Resolution_x = 2 * pi / nC;
+        double Resolution_y = 2 * pi / nR;
+        u = yipth / Resolution_x;
+        v = nR / 2 - yita / Resolution_y;
+    }
+
+};
+*/
 
 class Edge6DoFPoseVertex:public g2o::BaseUnaryEdge<6,Vector6d,g2o::VertexSE3Expmap>
 {

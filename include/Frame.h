@@ -298,9 +298,13 @@ public:
     cv::Mat mTlr, mRlr, mtlr, mTrl;
     cv::Matx34f mTrlx, mTlrx;
 
-    vector<int> mChannel;
+    vector<int> miGPSChannel;
     vector<Eigen::Vector3d> miGPSDirection;
     vector<Eigen::Vector2d> miGPSDirAngle;
+    vector<int> miGPSTransmitter;
+    vector<double>  miGPStime;
+    map<int, Eigen::Vector3d> miGPSReceive;
+
     map<int,Eigen::Vector3d> mmiGPSChDir;
     map<int,Eigen::Vector2d> mmiGPSChDirAngle;
     Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeStamp, ORBextractor* extractorLeft, ORBextractor* extractorRight, ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth, GeometricCamera* pCamera, GeometricCamera* pCamera2, cv::Mat& Tlr,Frame* pPrevF = static_cast<Frame*>(NULL), const IMU::Calib &ImuCalib = IMU::Calib());

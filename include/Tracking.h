@@ -92,6 +92,7 @@ public:
     void InitializeiGPS(KeyFrame* pKFini, KeyFrame* pKFcur);
     void GetiGPSMeasurement();
     void GetiGPSDirectionMeasurement();
+    int GetiGSReceivesInCameraFrame();
     void GetInitialCamPoseTcw(const double ,cv::Mat &);
 
     // Load new settings
@@ -371,8 +372,10 @@ protected:
     long CountLines(string filename);
 
     vector<cv::Mat> vTwi,vTci;
+    map<int, Eigen::Vector3d> miGPSReceive;
     public:
     cv::Mat mImRight;
+    int mPnpWeight;
 };
 
 } //namespace ORB_SLAM

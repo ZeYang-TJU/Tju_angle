@@ -58,13 +58,32 @@ void Optimizer::GlobalBundleAdjustemnt(Map* pMap, int nIterations, bool* pbStopF
     BundleAdjustment(vpKFs,vpMP,nIterations,pbStopFlag, nLoopKF, bRobust);
 }
 
-void Optimizer::GlobalVisualiGPSBundleAdjustemnt(Map* pMap, vector<cv::Mat>& vTci, bool mbMonocular, int nIterations, bool* pbStopFlag, const unsigned long nLoopKF, const bool bRobust)
+bool Optimizer::GlobalVisualiGPSBundleAdjustemnt(Map* pMap, vector<cv::Mat>& vTci, bool mbMonocular, int nIterations, long weight, bool* pbStopFlag, const unsigned long nLoopKF, const bool bRobust)
 {
-    cout << "Start GlobalViBundleAdjustemnt" <<endl;
     vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
     vector<MapPoint*> vpMP = pMap->GetAllMapPoints();
-    GlobalViBundleAdjustemnt(vpKFs,vpMP,vTci,nIterations,mbMonocular,pbStopFlag, nLoopKF, bRobust);
-    cout << "End GlobalViBundleAdjustemnt" <<endl;
+    int Num_Dir = 0;
+    for(auto i:vpKFs)
+    {
+        Num_Dir += i->miGPSDirection.size();
+    }
+    cout << "i->miGPSDirection.size() = " << Num_Dir <<endl;
+
+    if(Num_Dir<30)
+    {
+        cout << "Direction not enough" <<endl;
+        return false;
+    }
+    //for(auto i:vpKFs)
+    //{
+    //    for(auto j : i->miGPSDirection)
+    //    {
+    //        cout << "mTimeStamp = "<< i->mTimeStamp <<endl;
+    //        cout << "miGPSDirection = "<< j <<endl;
+    //    }
+    //}
+    GlobalViBundleAdjustemnt(vpKFs,vpMP,vTci,mbMonocular,nIterations, weight,pbStopFlag, nLoopKF, bRobust);
+    return true;
 }
 
 void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<MapPoint *> &vpMP,
@@ -403,28 +422,23 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
 }
 
 void Optimizer::GlobalViBundleAdjustemnt(const vector<KeyFrame *> &vpKFs, const vector<MapPoint *> &vpMP,
-                                  vector<cv::Mat>& vTci, bool mbMonocular, int nIterations, bool* pbStopFlag, const unsigned long nLoopKF, const bool bRobust)
+                                  vector<cv::Mat>& vTci, bool mbMonocular, int nIterations, long weight, bool* pbStopFlag, const unsigned long nLoopKF, const bool bRobust)
 {
+    cout << "Start GlobalViBundleAdjustemnt" <<endl;
+
     vector<bool> vbNotIncludedMP;
     vbNotIncludedMP.resize(vpMP.size());
 
     Map* pMap = vpKFs[0]->GetMap();
 
-    //g2o::SparseOptimizer optimizer;
-    //g2o::BlockSolver_6_3::LinearSolverType * linearSolver;
-    //linearSolver = new g2o::LinearSolverEigen<g2o::BlockSolver_6_3::PoseMatrixType>();
-    //g2o::BlockSolver_6_3 * solver_ptr = new g2o::BlockSolver_6_3(linearSolver);
-    //g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
-    //optimizer.setAlgorithm(solver);
-    //optimizer.setVerbose(false);
-
     g2o::SparseOptimizer optimizer;
     g2o::BlockSolverX::LinearSolverType * linearSolver;
-    linearSolver = new g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>();
+    linearSolver = new g2o::LinearSolverDense<g2o::BlockSolverX::PoseMatrixType>();
     g2o::BlockSolverX * solver_ptr = new g2o::BlockSolverX(linearSolver);
     g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
+    solver->setUserLambdaInit(1e-8);
     optimizer.setAlgorithm(solver);
-    optimizer.setVerbose(false);
+    optimizer.setVerbose(true);
 
     if(pbStopFlag)
         optimizer.setForceStopFlag(pbStopFlag);
@@ -462,7 +476,6 @@ void Optimizer::GlobalViBundleAdjustemnt(const vector<KeyFrame *> &vpKFs, const 
 
 
     // Set KeyFrame vertices
-
     for(size_t i=0; i<vpKFs.size(); i++)
     {
         KeyFrame* pKF = vpKFs[i];
@@ -470,84 +483,26 @@ void Optimizer::GlobalViBundleAdjustemnt(const vector<KeyFrame *> &vpKFs, const 
             continue;
         g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
         vSE3->setEstimate(Converter::toSE3Quat(pKF->GetPose()));
+
         vSE3->setId(pKF->mnId);
         //vSE3->setFixed(pKF->mnId==pMap->GetInitKFid());
         optimizer.addVertex(vSE3);
         if(pKF->mnId>maxKFid)
             maxKFid=pKF->mnId;
     }
+    map<int,int> mnKF;
+    for(size_t i=0; i<vpKFs.size(); i++)
+    {
+        mnKF.insert(pair<int,int>(vpKFs[i]->mnId,0));
+    }
 
     int num_trans = vTci.size();
 
+    vector<EdgeiGPSDir6DoFPose*> ep;
+    ep.reserve(vpKFs.size());
     if(!mbMonocular)
     {
-        for(auto i = 0; i < num_trans; i ++)
-        {
-            g2o::VertexSE3Expmap* VP = new g2o::VertexSE3Expmap();
-            VP->setEstimate(Converter::toSE3Quat(vTci[i]));
-            VP->setId(maxKFid+2+i);
-            //VP->setFixed(bScaleFixFlag);
-            VP->setFixed(true);
-            optimizer.addVertex(VP);
-
-            //restrict the scope of transmitter pose vertex optimization
-            {
-                Eigen::Matrix4d eTci = Converter::toMatrix4d(vTci[i]);
-                Edge6DoFPoseVertex* epv = new Edge6DoFPoseVertex();
-                epv->setVertex(0,dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(maxKFid+2+i)));
-                Vector6d Vertex6DPose;
-                Eigen::Matrix3d R = eTci.block<3,3>(0,0);
-                Eigen::Vector3d t = eTci.block<3,1>(0,3);
-                Eigen::Quaterniond q(R);
-                Vertex6DPose << q.x(),q.y(),q.z(),t;
-                epv->setMeasurement(Vertex6DPose);
-                Eigen::Matrix<double, 6, 6> inforMat = Eigen::Matrix<double, 6, 6>::Identity();
-                inforMat = 100000 * inforMat;
-                epv->setInformation(inforMat);
-                optimizer.addEdge(epv);
-
-            }
-        }
-        //vector<EdgeiGPSDir6DoFPose*> ep;
-        //ep.reserve(lLocalKeyFrames.size());
-        for(auto lit=vpKFs.begin(), lend=vpKFs.end(); lit!=lend; lit++)
-        {
-            KeyFrame* pKFi = *lit;
-            g2o::SE3Quat CamPose = Converter::toSE3Quat(pKFi->GetPoseInverse());
-
-            if(pKFi->mmiGPSChDir.empty() || CamPose.translation().x() == 0.0)
-                continue;
-
-            //for(auto i: pKFi->mmiGPSChDir)
-            //    cout << " pKFi->mmiGPSChDir = " << i.first  << i.second << endl;
-
-            vector<Eigen::Matrix<double,6,1>> PointDirection;
-            //cout << "pKFi->mTimeStamp = " << pKFi->mTimeStamp <<endl;
-            g2o::VertexSE3Expmap* V1 = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(pKFi->mnId));
-            //cout << " pKFi->GetPoseInverse() = " << V1->estimate().inverse() <<endl;
-            for(auto i = 0; i < num_trans; i ++)
-            {
-                auto it = pKFi->mmiGPSChDir.find(i + 1);
-                Eigen::Vector3d Dir;
-                if(it!=pKFi->mmiGPSChDir.end())
-                    Dir = it->second;
-                else
-                    continue;
-
-                //EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose(eTci);
-                //EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose(mTcw);
-                EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose();
-                e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(pKFi->mnId)));
-                e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(maxKFid + 2 + i)));
-                Eigen::Vector4d Measurement = Eigen::Vector4d(Dir.x(),Dir.y(),Dir.z(),0.0);
-                e->setMeasurement(Measurement);
-                Eigen::Matrix<double, 4, 4> inforMatrix = Eigen::Matrix<double, 4, 4>::Identity();
-                inforMatrix = 1000000 * inforMatrix;
-                inforMatrix(4,4) = 10000000;
-                e->setInformation(inforMatrix);
-                optimizer.addEdge(e);
-            }
-        }
+        addiGPSDirectionEdge(optimizer,vpKFs,vTci,ep, weight);
     }
 
     const float thHuber2D = sqrt(5.99);
@@ -643,10 +598,10 @@ void Optimizer::GlobalViBundleAdjustemnt(const vector<KeyFrame *> &vpKFs, const 
                 e->bf = pKF->mbf;
 
                 optimizer.addEdge(e);
-
                 vpEdgesStereo.push_back(e);
                 vpEdgeKFStereo.push_back(pKF);
                 vpMapPointEdgeStereo.push_back(pMP);
+                mnKF[pKF->mnId]++;
             }
 
             if(pKF->mpCamera2){
@@ -696,130 +651,81 @@ void Optimizer::GlobalViBundleAdjustemnt(const vector<KeyFrame *> &vpKFs, const 
         }
     }
 
-    // Optimize!
-    optimizer.setVerbose(true);
+
+    //for(auto i = mnKF.begin();i != mnKF.end();i++)
+    //{
+    //    cout << " KF = " << i->first << " " << i->second <<endl;
+    //}
+
+    const float chi2Mono[4]={5.991,5.991,5.991,5.991};
+    const float chi2Stereo[5]={1.0,1.0,1.0, 1.0,1.0};
+    const int its[5]={20,20,20,20,20};
+
     optimizer.initializeOptimization();
-    optimizer.optimize(nIterations);
-    Verbose::PrintMess("BA: End of the optimization", Verbose::VERBOSITY_NORMAL);
+    optimizer.optimize(20);
+
+    // Optimize!
+    //delete points whose chi2()>1.0
+    int nBad=0;
+    for(size_t it=0; it<5; it++)
+    {
+        optimizer.initializeOptimization();
+        optimizer.optimize(its[it]);
+        Verbose::PrintMess("BA: End of the optimization", Verbose::VERBOSITY_NORMAL);
+        for(size_t i=0, iend=vpEdgesStereo.size(); i<iend; i++)
+        {
+            g2o::EdgeStereoSE3ProjectXYZ* e = vpEdgesStereo[i];
+            const float chi2 = e->chi2();
+            if(chi2>chi2Stereo[it])
+            {
+                e->setLevel(1);
+                nBad++;
+                //cout << "e->vertex(1)->id() = " <<  e->vertex(1)->id() <<endl;
+                cout << "chi2 = " <<chi2 <<endl;
+            }
+            else
+            {
+                e->setLevel(0);
+                //cout << "chi2 = " <<chi2 <<endl;
+            }
+            //if(it==2)
+            //    e->setRobustKernel(0);
+        }
+        if(optimizer.edges().size()<10)
+            break;
+    }
 
     // Recover optimized data
-    for(auto lit=vpKFs.begin(), lend=vpKFs.end(); lit!=lend; lit++)
-    {
-        KeyFrame* pKFi = *lit;
-        g2o::VertexSE3Expmap* vSE3 = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(pKFi->mnId));
+    for (auto lit = vpKFs.begin(), lend = vpKFs.end(); lit != lend; lit++) {
+        KeyFrame *pKFi = *lit;
+        g2o::VertexSE3Expmap *vSE3 = static_cast<g2o::VertexSE3Expmap *>(optimizer.vertex(pKFi->mnId));
         g2o::SE3Quat SE3quat = vSE3->estimate();
         pKFi->SetPose(Converter::toCvMat(SE3quat));
     }
-    //Keyframes
-    /*
-    for(size_t i=0; i<vpKFs.size(); i++)
-    {
-        KeyFrame* pKF = vpKFs[i];
-        if(pKF->isBad())
-            continue;
-        g2o::VertexSE3Expmap* vSE3 = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(pKF->mnId));
-
-        g2o::SE3Quat SE3quat = vSE3->estimate();
-        if(nLoopKF==pMap->GetOriginKF()->mnId)
-        {
-            pKF->SetPose(Converter::toCvMat(SE3quat));
-        }
-        else
-        {
-
-            pKF->mTcwGBA.create(4,4,CV_32F);
-            Converter::toCvMat(SE3quat).copyTo(pKF->mTcwGBA);
-            pKF->mnBAGlobalForKF = nLoopKF;
-
-            cv::Mat mTwc = pKF->GetPoseInverse();
-            cv::Mat mTcGBA_c = pKF->mTcwGBA * mTwc;
-            cv::Vec3d vector_dist =  mTcGBA_c.rowRange(0, 3).col(3);
-            double dist = cv::norm(vector_dist);
-            if(dist > 1)
-            {
-                int numMonoBadPoints = 0, numMonoOptPoints = 0;
-                int numStereoBadPoints = 0, numStereoOptPoints = 0;
-                vector<MapPoint*> vpMonoMPsOpt, vpStereoMPsOpt;
-
-                for(size_t i=0, iend=vpEdgesMono.size(); i<iend;i++)
-                {
-                    ORB_SLAM3::EdgeSE3ProjectXYZ* e = vpEdgesMono[i];
-                    MapPoint* pMP = vpMapPointEdgeMono[i];
-                    KeyFrame* pKFedge = vpEdgeKFMono[i];
-
-                    if(pKF != pKFedge)
-                    {
-                        continue;
-                    }
-
-                    if(pMP->isBad())
-                        continue;
-
-                    if(e->chi2()>5.991 || !e->isDepthPositive())
-                    {
-                        numMonoBadPoints++;
-
-                    }
-                    else
-                    {
-                        numMonoOptPoints++;
-                        vpMonoMPsOpt.push_back(pMP);
-                    }
-
-                }
-
-                for(size_t i=0, iend=vpEdgesStereo.size(); i<iend;i++)
-                {
-                    g2o::EdgeStereoSE3ProjectXYZ* e = vpEdgesStereo[i];
-                    MapPoint* pMP = vpMapPointEdgeStereo[i];
-                    KeyFrame* pKFedge = vpEdgeKFMono[i];
-
-                    if(pKF != pKFedge)
-                    {
-                        continue;
-                    }
-
-                    if(pMP->isBad())
-                        continue;
-
-                    if(e->chi2()>7.815 || !e->isDepthPositive())
-                    {
-                        numStereoBadPoints++;
-                    }
-                    else
-                    {
-                        numStereoOptPoints++;
-                        vpStereoMPsOpt.push_back(pMP);
-                    }
-                }
-            }
-        }
-    }*/
 
     //Points
-    for(size_t i=0; i<vpMP.size(); i++)
-    {
-        if(vbNotIncludedMP[i])
+    for (size_t i = 0; i < vpMP.size(); i++) {
+        if (vbNotIncludedMP[i])
             continue;
 
-        MapPoint* pMP = vpMP[i];
+        MapPoint *pMP = vpMP[i];
 
-        if(pMP->isBad())
+        if (pMP->isBad())
             continue;
-        g2o::VertexSBAPointXYZ* vPoint = static_cast<g2o::VertexSBAPointXYZ*>(optimizer.vertex(pMP->mnId+maxKFid+2+num_trans));
+        g2o::VertexSBAPointXYZ *vPoint = static_cast<g2o::VertexSBAPointXYZ *>(optimizer.vertex(
+                pMP->mnId + maxKFid + 2 + num_trans));
 
-        if(nLoopKF==pMap->GetOriginKF()->mnId)
-        {
+        if (nLoopKF == pMap->GetOriginKF()->mnId) {
             pMP->SetWorldPos(Converter::toCvMat(vPoint->estimate()));
             pMP->UpdateNormalAndDepth();
-        }
-        else
-        {
-            pMP->mPosGBA.create(3,1,CV_32F);
+        } else {
+            pMP->mPosGBA.create(3, 1, CV_32F);
             Converter::toCvMat(vPoint->estimate()).copyTo(pMP->mPosGBA);
             pMP->mnBAGlobalForKF = nLoopKF;
         }
     }
+
+    cout << "End GlobalViBundleAdjustemnt" <<endl;
 }
 
 void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const long unsigned int nLoopId, bool *pbStopFlag, bool bInit, float priorG, float priorA, Eigen::VectorXd *vSingVal, bool *bHess)
@@ -1255,9 +1161,322 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
     pMap->IncreaseChangeIndex();
 }
 
-
 int Optimizer::PoseOptimization(Frame *pFrame)
+    {
+        g2o::SparseOptimizer optimizer;
+        g2o::BlockSolver_6_3::LinearSolverType * linearSolver;
+
+        linearSolver = new g2o::LinearSolverDense<g2o::BlockSolver_6_3::PoseMatrixType>();
+
+        g2o::BlockSolver_6_3 * solver_ptr = new g2o::BlockSolver_6_3(linearSolver);
+
+        g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
+        optimizer.setAlgorithm(solver);
+
+        int nInitialCorrespondences=0;
+
+        // Set Frame vertex
+        g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
+        vSE3->setEstimate(Converter::toSE3Quat(pFrame->mTcw));
+        vSE3->setId(0);
+        vSE3->setFixed(false);
+        optimizer.addVertex(vSE3);
+
+        // Set MapPoint vertices
+        const int N = pFrame->N;
+
+        vector<ORB_SLAM3::EdgeSE3ProjectXYZOnlyPose*> vpEdgesMono;
+        vector<ORB_SLAM3::EdgeSE3ProjectXYZOnlyPoseToBody *> vpEdgesMono_FHR;
+        vector<size_t> vnIndexEdgeMono, vnIndexEdgeRight;
+        vpEdgesMono.reserve(N);
+        vpEdgesMono_FHR.reserve(N);
+        vnIndexEdgeMono.reserve(N);
+        vnIndexEdgeRight.reserve(N);
+
+        vector<g2o::EdgeStereoSE3ProjectXYZOnlyPose*> vpEdgesStereo;
+        vector<size_t> vnIndexEdgeStereo;
+        vpEdgesStereo.reserve(N);
+        vnIndexEdgeStereo.reserve(N);
+
+        const float deltaMono = sqrt(5.991);
+        const float deltaStereo = sqrt(7.815);
+
+        {
+            unique_lock<mutex> lock(MapPoint::mGlobalMutex);
+
+            for(int i=0; i<N; i++)
+            {
+                MapPoint* pMP = pFrame->mvpMapPoints[i];
+                if(pMP)
+                {
+                    //Conventional SLAM
+                    if(!pFrame->mpCamera2){
+                        // Monocular observation
+                        if(pFrame->mvuRight[i]<0)
+                        {
+                            nInitialCorrespondences++;
+                            pFrame->mvbOutlier[i] = false;
+
+                            Eigen::Matrix<double,2,1> obs;
+                            const cv::KeyPoint &kpUn = pFrame->mvKeysUn[i];
+                            obs << kpUn.pt.x, kpUn.pt.y;
+
+                            ORB_SLAM3::EdgeSE3ProjectXYZOnlyPose* e = new ORB_SLAM3::EdgeSE3ProjectXYZOnlyPose();
+
+                            e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
+                            e->setMeasurement(obs);
+                            const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
+                            e->setInformation(Eigen::Matrix2d::Identity()*invSigma2);
+
+                            g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+                            e->setRobustKernel(rk);
+                            rk->setDelta(deltaMono);
+
+                            e->pCamera = pFrame->mpCamera;
+                            cv::Mat Xw = pMP->GetWorldPos();
+                            e->Xw[0] = Xw.at<float>(0);
+                            e->Xw[1] = Xw.at<float>(1);
+                            e->Xw[2] = Xw.at<float>(2);
+
+                            optimizer.addEdge(e);
+
+                            vpEdgesMono.push_back(e);
+                            vnIndexEdgeMono.push_back(i);
+                        }
+                        else  // Stereo observation
+                        {
+                            nInitialCorrespondences++;
+                            pFrame->mvbOutlier[i] = false;
+
+                            //SET EDGE
+                            Eigen::Matrix<double,3,1> obs;
+                            const cv::KeyPoint &kpUn = pFrame->mvKeysUn[i];
+                            const float &kp_ur = pFrame->mvuRight[i];
+                            obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
+
+                            g2o::EdgeStereoSE3ProjectXYZOnlyPose* e = new g2o::EdgeStereoSE3ProjectXYZOnlyPose();
+
+                            e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
+                            e->setMeasurement(obs);
+                            const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
+                            Eigen::Matrix3d Info = Eigen::Matrix3d::Identity()*invSigma2;
+                            e->setInformation(Info);
+
+                            g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+                            e->setRobustKernel(rk);
+                            rk->setDelta(deltaStereo);
+
+                            e->fx = pFrame->fx;
+                            e->fy = pFrame->fy;
+                            e->cx = pFrame->cx;
+                            e->cy = pFrame->cy;
+                            e->bf = pFrame->mbf;
+                            cv::Mat Xw = pMP->GetWorldPos();
+                            e->Xw[0] = Xw.at<float>(0);
+                            e->Xw[1] = Xw.at<float>(1);
+                            e->Xw[2] = Xw.at<float>(2);
+
+                            optimizer.addEdge(e);
+
+                            vpEdgesStereo.push_back(e);
+                            vnIndexEdgeStereo.push_back(i);
+                        }
+                    }
+                        //SLAM with respect a rigid body
+                    else{
+                        nInitialCorrespondences++;
+
+                        cv::KeyPoint kpUn;
+
+                        if (i < pFrame->Nleft) {    //Left camera observation
+                            kpUn = pFrame->mvKeys[i];
+
+                            pFrame->mvbOutlier[i] = false;
+
+                            Eigen::Matrix<double, 2, 1> obs;
+                            obs << kpUn.pt.x, kpUn.pt.y;
+
+                            ORB_SLAM3::EdgeSE3ProjectXYZOnlyPose *e = new ORB_SLAM3::EdgeSE3ProjectXYZOnlyPose();
+
+                            e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(0)));
+                            e->setMeasurement(obs);
+                            const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
+                            e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
+
+                            g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
+                            e->setRobustKernel(rk);
+                            rk->setDelta(deltaMono);
+
+                            e->pCamera = pFrame->mpCamera;
+                            cv::Mat Xw = pMP->GetWorldPos();
+                            e->Xw[0] = Xw.at<float>(0);
+                            e->Xw[1] = Xw.at<float>(1);
+                            e->Xw[2] = Xw.at<float>(2);
+
+                            optimizer.addEdge(e);
+
+                            vpEdgesMono.push_back(e);
+                            vnIndexEdgeMono.push_back(i);
+                        }
+                        else {   //Right camera observation
+                            kpUn = pFrame->mvKeysRight[i - pFrame->Nleft];
+
+                            Eigen::Matrix<double, 2, 1> obs;
+                            obs << kpUn.pt.x, kpUn.pt.y;
+
+                            pFrame->mvbOutlier[i] = false;
+
+                            ORB_SLAM3::EdgeSE3ProjectXYZOnlyPoseToBody *e = new ORB_SLAM3::EdgeSE3ProjectXYZOnlyPoseToBody();
+
+                            e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(0)));
+                            e->setMeasurement(obs);
+                            const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
+                            e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
+
+                            g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
+                            e->setRobustKernel(rk);
+                            rk->setDelta(deltaMono);
+
+                            e->pCamera = pFrame->mpCamera2;
+                            cv::Mat Xw = pMP->GetWorldPos();
+                            e->Xw[0] = Xw.at<float>(0);
+                            e->Xw[1] = Xw.at<float>(1);
+                            e->Xw[2] = Xw.at<float>(2);
+
+                            e->mTrl = Converter::toSE3Quat(pFrame->mTrl);
+
+                            optimizer.addEdge(e);
+
+                            vpEdgesMono_FHR.push_back(e);
+                            vnIndexEdgeRight.push_back(i);
+                        }
+                    }
+                }
+            }
+        }
+
+        if(nInitialCorrespondences<3)
+            return 0;
+
+        // We perform 4 optimizations, after each optimization we classify observation as inlier/outlier
+        // At the next optimization, outliers are not included, but at the end they can be classified as inliers again.
+        const float chi2Mono[4]={5.991,5.991,5.991,5.991};
+        const float chi2Stereo[4]={7.815,7.815,7.815, 7.815};
+        const int its[4]={10,10,10,10};
+
+        int nBad=0;
+        for(size_t it=0; it<4; it++)
+        {
+
+            vSE3->setEstimate(Converter::toSE3Quat(pFrame->mTcw));
+            optimizer.initializeOptimization(0);
+            optimizer.optimize(its[it]);
+
+            nBad=0;
+            for(size_t i=0, iend=vpEdgesMono.size(); i<iend; i++)
+            {
+                ORB_SLAM3::EdgeSE3ProjectXYZOnlyPose* e = vpEdgesMono[i];
+
+                const size_t idx = vnIndexEdgeMono[i];
+
+                if(pFrame->mvbOutlier[idx])
+                {
+                    e->computeError();
+                }
+
+                const float chi2 = e->chi2();
+
+                if(chi2>chi2Mono[it])
+                {
+                    pFrame->mvbOutlier[idx]=true;
+                    e->setLevel(1);
+                    nBad++;
+                }
+                else
+                {
+                    pFrame->mvbOutlier[idx]=false;
+                    e->setLevel(0);
+                }
+
+                if(it==2)
+                    e->setRobustKernel(0);
+            }
+
+            for(size_t i=0, iend=vpEdgesMono_FHR.size(); i<iend; i++)
+            {
+                ORB_SLAM3::EdgeSE3ProjectXYZOnlyPoseToBody* e = vpEdgesMono_FHR[i];
+
+                const size_t idx = vnIndexEdgeRight[i];
+
+                if(pFrame->mvbOutlier[idx])
+                {
+                    e->computeError();
+                }
+
+                const float chi2 = e->chi2();
+
+                if(chi2>chi2Mono[it])
+                {
+                    pFrame->mvbOutlier[idx]=true;
+                    e->setLevel(1);
+                    nBad++;
+                }
+                else
+                {
+                    pFrame->mvbOutlier[idx]=false;
+                    e->setLevel(0);
+                }
+
+                if(it==2)
+                    e->setRobustKernel(0);
+            }
+
+            for(size_t i=0, iend=vpEdgesStereo.size(); i<iend; i++)
+            {
+                g2o::EdgeStereoSE3ProjectXYZOnlyPose* e = vpEdgesStereo[i];
+
+                const size_t idx = vnIndexEdgeStereo[i];
+
+                if(pFrame->mvbOutlier[idx])
+                {
+                    e->computeError();
+                }
+
+                const float chi2 = e->chi2();
+
+                if(chi2>chi2Stereo[it])
+                {
+                    pFrame->mvbOutlier[idx]=true;
+                    e->setLevel(1);
+                    nBad++;
+                }
+                else
+                {
+                    e->setLevel(0);
+                    pFrame->mvbOutlier[idx]=false;
+                }
+
+                if(it==2)
+                    e->setRobustKernel(0);
+            }
+
+            if(optimizer.edges().size()<10)
+                break;
+        }
+
+        // Recover optimized pose and return number of inliers
+        g2o::VertexSE3Expmap* vSE3_recov = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(0));
+        g2o::SE3Quat SE3quat_recov = vSE3_recov->estimate();
+        cv::Mat pose = Converter::toCvMat(SE3quat_recov);
+        pFrame->SetPose(pose);
+
+        return nInitialCorrespondences-nBad;
+    }
+
+int Optimizer::iGPSDirectionPoseOptimization(Frame *pFrame,vector<cv::Mat>& vTci,double weight)
 {
+    //cout << " Start iGPSPoseOptimization " <<endl << endl;
+
     g2o::SparseOptimizer optimizer;
     g2o::BlockSolver_6_3::LinearSolverType * linearSolver;
 
@@ -1267,7 +1486,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
     g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
     optimizer.setAlgorithm(solver);
-
+    optimizer.setVerbose(true);
     int nInitialCorrespondences=0;
 
     // Set Frame vertex
@@ -1450,13 +1669,17 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     }
     }
 
+    vector<EdgeiGPSDir6DoFPose*> ep;
+    ep.reserve(6);
+    addiGPSDirectionPoseOptimizationEdge(optimizer,pFrame,vTci,ep, weight);
+
     if(nInitialCorrespondences<3)
         return 0;
 
     // We perform 4 optimizations, after each optimization we classify observation as inlier/outlier
     // At the next optimization, outliers are not included, but at the end they can be classified as inliers again.
     const float chi2Mono[4]={5.991,5.991,5.991,5.991};
-    const float chi2Stereo[4]={7.815,7.815,7.815, 7.815};
+    float chi2Stereo[4]={7.815,7.815,7.815, 7.815};
     const int its[4]={10,10,10,10};
 
     int nBad=0;
@@ -1526,6 +1749,22 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 e->setRobustKernel(0);
         }
 
+        /*
+        //Find 10 max chi2
+        vector<double> vchi2;
+        for(size_t i=0, iend=vpEdgesStereo.size(); i<iend; i++)
+        {
+            g2o::EdgeStereoSE3ProjectXYZOnlyPose* e = vpEdgesStereo[i];
+            vchi2.push_back(e->chi2());
+        }
+        std::sort(vchi2.begin(), vchi2.begin() + vpEdgesStereo.size(), std::greater<double>());
+        if(vpEdgesStereo.size() >10 && vchi2[10] > chi2Stereo[it])
+        {
+            chi2Stereo[it] = vchi2[10];
+            cout << "chi2 threshold = "<< vchi2[10] <<endl;
+        }
+        */
+
         for(size_t i=0, iend=vpEdgesStereo.size(); i<iend; i++)
         {
             g2o::EdgeStereoSE3ProjectXYZOnlyPose* e = vpEdgesStereo[i];
@@ -1544,6 +1783,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 pFrame->mvbOutlier[idx]=true;
                 e->setLevel(1);
                 nBad++;
+                //cout << "chi2 = "<< chi2 <<endl;
             }
             else
             {                
@@ -1564,6 +1804,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     g2o::SE3Quat SE3quat_recov = vSE3_recov->estimate();
     cv::Mat pose = Converter::toCvMat(SE3quat_recov);
     pFrame->SetPose(pose);
+    //cout << " End iGPSPoseOptimization " <<endl << endl;
 
     return nInitialCorrespondences-nBad;
 }
@@ -2059,7 +2300,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, vector<Ke
     pCurrentMap->IncreaseChangeIndex();
 }
 
-void Optimizer::LocaliGPSDirBA(KeyFrame *pKF, bool* pbStopFlag, Map* pMap, int& num_fixedKF, int& num_OptKF, int& num_MPs, int& num_edges, double& iGPSPoseScale,vector<cv::Mat>& vTci, vector<Eigen::Matrix4d>& vTcw, bool bScaleFixFlag, bool bMonocular, list<KeyFrame*> lKF)
+void Optimizer::LocaliGPSDirBA(KeyFrame *pKF, bool* pbStopFlag, Map* pMap, int& num_fixedKF, int& num_OptKF, int& num_MPs, int& num_edges, double& iGPSPoseScale,vector<cv::Mat>& vTci, vector<Eigen::Matrix4d>& vTcw, bool bScaleFixFlag, bool bMonocular, list<KeyFrame*> lKF, long weight)
 {
     cout<< "Start Local iGPS Direction BA" <<endl;
 
@@ -2202,6 +2443,7 @@ void Optimizer::LocaliGPSDirBA(KeyFrame *pKF, bool* pbStopFlag, Map* pMap, int& 
     }
     num_OptKF = lLocalKeyFrames.size();
 
+
     // Set Fixed KeyFrame vertices
     for(list<KeyFrame*>::iterator lit=lFixedCameras.begin(), lend=lFixedCameras.end(); lit!=lend; lit++)
     {
@@ -2209,28 +2451,28 @@ void Optimizer::LocaliGPSDirBA(KeyFrame *pKF, bool* pbStopFlag, Map* pMap, int& 
         g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
         vSE3->setEstimate(Converter::toSE3Quat(pKFi->GetPose()));
         vSE3->setId(pKFi->mnId);
-        vSE3->setFixed(false);
+        vSE3->setFixed(true);
         optimizer.addVertex(vSE3);
         if(pKFi->mnId>maxKFid)
             maxKFid=pKFi->mnId;
         vnID.push_back(pKFi->mnId);
     }
 
-    for(auto lit=lKF.begin(),lend=lKF.end();lit!=lend; lit++) //将附近的10个关键帧放进来，注意不要跟其他的关键帧重合
-    {
-        KeyFrame* pKFi = *lit;
-        auto iter=find(vnID.begin(), vnID.end(), pKFi->mnId);
-        if(iter == vnID.end())
-        {
-            g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
-            vSE3->setEstimate(Converter::toSE3Quat(pKFi->GetPose()));
-            vSE3->setId(pKFi->mnId);
-            vSE3->setFixed(false);
-            optimizer.addVertex(vSE3);
-            if(pKFi->mnId>maxKFid)
-                maxKFid=pKFi->mnId;
-        }
-    }
+    //for(auto lit=lKF.begin(),lend=lKF.end();lit!=lend; lit++) //将附近的10个关键帧放进来，注意不要跟其他的关键帧重合
+    //{
+    //    KeyFrame* pKFi = *lit;
+    //    auto iter=find(vnID.begin(), vnID.end(), pKFi->mnId);
+    //    if(iter == vnID.end())
+    //    {
+    //        g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
+    //        vSE3->setEstimate(Converter::toSE3Quat(pKFi->GetPose()));
+    //        vSE3->setId(pKFi->mnId);
+    //        vSE3->setFixed(false);
+    //        optimizer.addVertex(vSE3);
+    //        if(pKFi->mnId>maxKFid)
+    //            maxKFid=pKFi->mnId;
+    //    }
+    //}
 
     int num_trans = vTci.size();
     //cout << " num_trans = " <<num_trans <<endl;
@@ -2283,12 +2525,15 @@ void Optimizer::LocaliGPSDirBA(KeyFrame *pKF, bool* pbStopFlag, Map* pMap, int& 
             KeyFrame* pKFi = *lit;
             g2o::SE3Quat CamPose = Converter::toSE3Quat(pKFi->GetPoseInverse());
 
-            if(pKFi->mmiGPSChDir.empty() || CamPose.translation().x() == 0.0)
+            if(pKFi->miGPSDirection.empty() || CamPose.translation().x() == 0.0)
                 continue;
 
             for(auto i = 0; i < num_trans; i ++)
             {
-                Eigen::Vector3d Dir = pKFi->mmiGPSChDir.find(i + 1)->second;
+                Eigen::Vector3d Dir;
+                /* 需要修改成不同发射站不同接收器
+                 * Eigen::Vector3d Dir = pKFi->mmiGPSChDir.find(i + 1)->second;
+                */
                 //EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose(eTci);
                 //EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose(mTcw);
                 EdgeiGPSDirUptoScale6DoFPose *e = new EdgeiGPSDirUptoScale6DoFPose();
@@ -2307,175 +2552,9 @@ void Optimizer::LocaliGPSDirBA(KeyFrame *pKF, bool* pbStopFlag, Map* pMap, int& 
     }
     else
     {
-        //Multi-transmitters situation. The scale between iGPS and monocular is not need to be estimated.
-        for(auto i = 0; i < num_trans; i ++)
-        {
-            g2o::VertexSE3Expmap* VP = new g2o::VertexSE3Expmap();
-            VP->setEstimate(Converter::toSE3Quat(vTci[i]));
-            VP->setId(maxKFid+2+i);
-            VP->setFixed(true);
-            optimizer.addVertex(VP);
-        }
-        for(list<KeyFrame*>::iterator lit=lLocalKeyFrames.begin(), lend=lLocalKeyFrames.end(); lit!=lend; lit++)
-        {
-            KeyFrame* pKFi = *lit;
-            cout << " test mTimeStamp 1= " << pKFi->mTimeStamp << endl;
-            g2o::SE3Quat CamPose = Converter::toSE3Quat(pKFi->GetPoseInverse());
-
-            cout << " pKFi->mmiGPSChDir 1 .size() = " << pKFi->mmiGPSChDir.size() <<endl;
-            if(pKFi->mmiGPSChDir.empty())
-                continue;
-
-            cout << " test 1 " << endl;
-
-            //for(auto i: pKFi->mmiGPSChDir)
-            //    cout << " pKFi->mmiGPSChDir = " << i.first  << i.second << endl;
-
-            vector<Eigen::Matrix<double,6,1>> PointDirection;
-            g2o::VertexSE3Expmap* V1 = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(pKFi->mnId));
-            Eigen::Vector3d CamPosition = V1->estimate().inverse().translation();
-            cout << " pKFi->mTimeStamp = " << pKFi->mTimeStamp << endl;
-            cout << " CamPosition = " << CamPosition.x() <<" " << CamPosition.y() <<" " <<CamPosition.z() <<endl;
-            for(auto i = 0; i < num_trans; i ++)
-            {
-                auto it = pKFi->mmiGPSChDir.find(i + 1);
-                Eigen::Vector3d Dir;
-                if(it!=pKFi->mmiGPSChDir.end())
-                    Dir = it->second;
-                else
-                    continue;
-
-                //EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose(eTci);
-                //EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose(mTcw);
-                EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose();
-                e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(pKFi->mnId)));
-                e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(maxKFid + 2 + i)));
-                Eigen::Vector4d Measurement = Eigen::Vector4d(Dir.x(),Dir.y(),Dir.z(),0.0);
-                e->setMeasurement(Measurement);
-                cout << " pKFi->Channel and Direction for raw data check = " << it->first << "th " << it->second.transpose() <<endl;
-                g2o::VertexSE3Expmap* V2 = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(maxKFid + 2 + i));
-                Eigen::Vector3d iGPSPosition = V2->estimate().translation();
-                cout << " iGPS Transmitter Position = " << iGPSPosition.x() <<" " << iGPSPosition.y() <<" " <<iGPSPosition.z() <<endl;
-                Eigen::Vector3d iGPS_Camera = (CamPosition - iGPSPosition)/(iGPSPosition - CamPosition).norm();
-                cout << " iGPS - Camera = " << iGPS_Camera.x() <<" " << iGPS_Camera.y() <<" " <<iGPS_Camera.z() <<endl;
-                cout << " iGPS Measurement Direction = " << (V2->estimate().rotation().toRotationMatrix() * Dir).transpose() <<endl;
-                //cout << "pKFi->miGPSDirection = " << pKFi->miGPSDirection <<endl;
-                Eigen::Matrix<double, 4, 4> inforMatrix = Eigen::Matrix<double, 4, 4>::Identity();
-                inforMatrix = 1000000 * inforMatrix;
-                inforMatrix(4,4) = 10000000;
-                e->setInformation(inforMatrix);
-                ep.push_back(e);
-                optimizer.addEdge(e);
-            }
-        }
-        for(list<KeyFrame*>::iterator lit=lFixedCameras.begin(), lend=lFixedCameras.end(); lit!=lend; lit++)
-        {
-            KeyFrame* pKFi = *lit;
-            cout << " test mTimeStamp 2 = " << pKFi->mTimeStamp << endl;
-            g2o::SE3Quat CamPose = Converter::toSE3Quat(pKFi->GetPoseInverse());
-            cout << " pKFi->mmiGPSChDir 2 .size() = " << pKFi->mmiGPSChDir.size() <<endl;
-
-            if(pKFi->mmiGPSChDir.empty())
-                continue;
-
-            cout << " test 2 " << endl;
-
-            vector<Eigen::Matrix<double,6,1>> PointDirection;
-            g2o::VertexSE3Expmap* V1 = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(pKFi->mnId));
-            Eigen::Vector3d CamPosition = V1->estimate().inverse().translation();
-            cout << " pKFi->mTimeStamp = " << pKFi->mTimeStamp << endl;
-            cout << " CamPosition = " << CamPosition.x() <<" " << CamPosition.y() <<" " <<CamPosition.z() <<endl;
-            for(auto i = 0; i < num_trans; i ++)
-            {
-                auto it = pKFi->mmiGPSChDir.find(i + 1);
-                Eigen::Vector3d Dir;
-                if(it!=pKFi->mmiGPSChDir.end())
-                    Dir = it->second;
-                else
-                    continue;
-
-                //EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose(eTci);
-                //EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose(mTcw);
-                EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose();
-                e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(pKFi->mnId)));
-                e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(maxKFid + 2 + i)));
-                Eigen::Vector4d Measurement = Eigen::Vector4d(Dir.x(),Dir.y(),Dir.z(),0.0);
-                e->setMeasurement(Measurement);
-                cout << " pKFi->Channel and Direction for raw data check = " << it->first << "th " << it->second.transpose() <<endl;
-                g2o::VertexSE3Expmap* V2 = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(maxKFid + 2 + i));
-                Eigen::Vector3d iGPSPosition = V2->estimate().translation();
-                cout << " iGPS Transmitter Position = " << iGPSPosition.x() <<" " << iGPSPosition.y() <<" " <<iGPSPosition.z() <<endl;
-                Eigen::Vector3d iGPS_Camera = (CamPosition - iGPSPosition)/(iGPSPosition - CamPosition).norm();
-                cout << " iGPS - Camera = " << iGPS_Camera.x() <<" " << iGPS_Camera.y() <<" " <<iGPS_Camera.z() <<endl;
-                cout << " iGPS Measurement Direction = " << (V2->estimate().rotation().toRotationMatrix() * Dir).transpose() <<endl;
-                //cout << "pKFi->miGPSDirection = " << pKFi->miGPSDirection <<endl;
-                Eigen::Matrix<double, 4, 4> inforMatrix = Eigen::Matrix<double, 4, 4>::Identity();
-                inforMatrix = 1000000 * inforMatrix;
-                inforMatrix(4,4) = 10000000;
-                e->setInformation(inforMatrix);
-                ep.push_back(e);
-                optimizer.addEdge(e);
-            }
-        }
-        for(auto lit=lKF.begin(),lend=lKF.end();lit!=lend; lit++) //将附近的10个关键帧放进来，注意不要跟其他的关键帧重合
-        {
-            KeyFrame* pKFi = *lit;
-            cout << " test mTimeStamp 3 = " << pKFi->mTimeStamp << endl;
-            auto iter=find(vnID.begin(), vnID.end(), pKFi->mnId);
-            if(iter == vnID.end())
-            {
-                g2o::SE3Quat CamPose = Converter::toSE3Quat(pKFi->GetPoseInverse());
-                cout << " pKFi->mmiGPSChDir 3 .size() = " << pKFi->mmiGPSChDir.size() <<endl;
-
-                if(pKFi->mmiGPSChDir.empty())
-                    continue;
-
-                cout << " test 3 " << endl;
-
-                vector<Eigen::Matrix<double,6,1>> PointDirection;
-                g2o::VertexSE3Expmap* V1 = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(pKFi->mnId));
-                Eigen::Vector3d CamPosition = V1->estimate().inverse().translation();
-                cout << " pKFi->mTimeStamp = " << pKFi->mTimeStamp << endl;
-                cout << " CamPosition = " << CamPosition.x() <<" " << CamPosition.y() <<" " <<CamPosition.z() <<endl;
-                for(auto i = 0; i < num_trans; i ++)
-                {
-                    auto it = pKFi->mmiGPSChDir.find(i + 1);
-                    Eigen::Vector3d Dir;
-                    if(it!=pKFi->mmiGPSChDir.end())
-                        Dir = it->second;
-                    else
-                        continue;
-
-                    //EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose(eTci);
-                    //EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose(mTcw);
-                    EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose();
-                    e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(pKFi->mnId)));
-                    e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(maxKFid + 2 + i)));
-                    Eigen::Vector4d Measurement = Eigen::Vector4d(Dir.x(),Dir.y(),Dir.z(),0.0);
-                    e->setMeasurement(Measurement);
-                    cout << " pKFi->Channel and Direction for raw data check = " << it->first << "th " << it->second.transpose() <<endl;
-                    g2o::VertexSE3Expmap* V2 = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(maxKFid + 2 + i));
-                    Eigen::Vector3d iGPSPosition = V2->estimate().translation();
-                    cout << " iGPS Transmitter Position = " << iGPSPosition.x() <<" " << iGPSPosition.y() <<" " <<iGPSPosition.z() <<endl;
-                    Eigen::Vector3d iGPS_Camera = (CamPosition - iGPSPosition)/(iGPSPosition - CamPosition).norm();
-                    cout << " iGPS - Camera = " << iGPS_Camera.x() <<" " << iGPS_Camera.y() <<" " <<iGPS_Camera.z() <<endl;
-                    cout << " iGPS Measurement Direction = " << (V2->estimate().rotation().toRotationMatrix() * Dir).transpose() <<endl;
-                    //cout << "pKFi->miGPSDirection = " << pKFi->miGPSDirection <<endl;
-                    Eigen::Matrix<double, 4, 4> inforMatrix = Eigen::Matrix<double, 4, 4>::Identity();
-                    inforMatrix = 1000000 * inforMatrix;
-                    inforMatrix(4,4) = 10000000;
-                    e->setInformation(inforMatrix);
-                    ep.push_back(e);
-                    optimizer.addEdge(e);
-                }
-            }
-        }
-    }
-
-    for(size_t i=0, iend=ep.size(); i<iend;i++)
-    {
-        EdgeiGPSDir6DoFPose* e = ep[i];
-        cout << "Before BA EdgeiGPSDir6DoFPose = " << e->chi2() <<endl;
+        addiGPSDirectionEdge(optimizer, lLocalKeyFrames,vTci,ep,weight);
+        //addiGPSDirectionEdge(optimizer, lFixedCameras,vTci,ep,weight);
+        //addiGPSDirectionEdge(optimizer, lKF,vTci,ep,weight);
     }
 
     // Set MapPoint vertices
@@ -2699,6 +2778,7 @@ void Optimizer::LocaliGPSDirBA(KeyFrame *pKF, bool* pbStopFlag, Map* pMap, int& 
 
             if(e->chi2()>7.815 || !e->isDepthPositive())
             {
+                //e->setLevel(1);
                 nStereoBadObs++;
             }
         }
@@ -2758,13 +2838,6 @@ void Optimizer::LocaliGPSDirBA(KeyFrame *pKF, bool* pbStopFlag, Map* pMap, int& 
         }
     }
 
-
-    for(size_t i=0, iend=ep.size(); i<iend;i++)
-    {
-        EdgeiGPSDir6DoFPose* e = ep[i];
-        cout << "After BA EdgeiGPSDir6DoFPose = " << e->chi2() <<endl;
-    }
-
     if(bMonocular)
     {
         VertexScale* VS = static_cast<VertexScale*>(optimizer.vertex(maxKFid + 1));
@@ -2781,15 +2854,17 @@ void Optimizer::LocaliGPSDirBA(KeyFrame *pKF, bool* pbStopFlag, Map* pMap, int& 
         }
     }
 
-    vTci.clear();
-    for(int i = 0 ; i < num_trans ; i++)
+    if(bMonocular)
     {
-        g2o::VertexSE3Expmap* VP = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(maxKFid + 2 + i));
-        g2o::SE3Quat T = VP->estimate();
-        vTci.push_back(Converter::toCvMat(T));
-        //cout << "vTci[" << i + 1 << "] = " << T << endl;
+        vTci.clear();
+        for(int i = 0 ; i < num_trans ; i++)
+        {
+            g2o::VertexSE3Expmap* VP = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(maxKFid + 2 + i));
+            g2o::SE3Quat T = VP->estimate();
+            vTci.push_back(Converter::toCvMat(T));
+            //cout << "vTci[" << i + 1 << "] = " << T << endl;
+        }
     }
-
     // Get Map Mutex
     unique_lock<mutex> lock(pMap->mMutexMapUpdate);
 
@@ -2810,13 +2885,13 @@ void Optimizer::LocaliGPSDirBA(KeyFrame *pKF, bool* pbStopFlag, Map* pMap, int& 
     for(list<KeyFrame*>::iterator lit=lLocalKeyFrames.begin(), lend=lLocalKeyFrames.end(); lit!=lend; lit++)
     {
         KeyFrame* pKFi = *lit;
-        cout << "pKFi->mTimeStamp = " << pKFi->mTimeStamp <<endl;
+        //cout << "pKFi->mTimeStamp = " << pKFi->mTimeStamp <<endl;
         g2o::VertexSE3Expmap* vSE3 = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(pKFi->mnId));
         g2o::SE3Quat SE3quat = vSE3->estimate();
         Eigen::Matrix3d r = SE3quat.rotation().toRotationMatrix();
         Eigen::Vector3d t = SE3quat.translation();
         Eigen::Vector3d t_inverse = - r.transpose() * t;
-        cout<< "After BA =" << t_inverse <<endl;
+        //cout<< "After BA =" << t_inverse.transpose() <<endl;
         pKFi->SetPose(Converter::toCvMat(SE3quat));
     }
 
@@ -5884,9 +5959,11 @@ Eigen::MatrixXd Optimizer::Sparsify(const Eigen::MatrixXd &H, const int &start1,
     return Hac+Hbc-Hc;
 }
 
-void Optimizer::iGPSDirectionOptimization(Map *pMap,Eigen::Matrix4d& Twc, int Channel)
+void Optimizer::iGPSDirectionOptimization(Map *pMap,Eigen::Matrix4d& Twc, int TrmSpeed)
 {
-    //cout<< "Start iGPSDirection Initialization" <<endl;
+    cout<< "--------------------" <<endl;
+
+    cout<< "Start iGPSDirection Initialization" <<endl;
     int its = 200; // Check number of iterations
     long unsigned int maxKFid = pMap->GetMaxKFid();
     const vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
@@ -5924,6 +6001,13 @@ void Optimizer::iGPSDirectionOptimization(Map *pMap,Eigen::Matrix4d& Twc, int Ch
 
     Eigen::Matrix3d ER = Eigen::Matrix3d::Identity();
     Eigen::Vector3d ET = Eigen::Vector3d::Zero();
+
+    //ER << 0.33287972, -0.94216716, -0.03888493,
+    //0.05812376, 0.061659206, -0.9964034,
+    //0.94117624, 0.32942235, 0.075287431;
+
+    //ET << -0.28746653,0.8349902,9.3440628;
+
     auto * vRT = new g2o::VertexSE3Expmap();
     vRT->setId(0);
     vRT->setFixed(false);
@@ -5940,42 +6024,52 @@ void Optimizer::iGPSDirectionOptimization(Map *pMap,Eigen::Matrix4d& Twc, int Ch
         if(pKFi->miGPSDirection.empty())
             continue;
 
-        int j;
-        //Find Channel
-        for(auto k = 0; k < pKFi->mChannel.size(); k++)
-            if(pKFi->mChannel[k] == Channel)
-                j = k;
-
-        if (pKFi->mnId > maxKFid || pKFi->miGPSDirection[j].x() == 0.0)
-            continue;
-        if(num %10 !=0)   //初始化策略很重要！！！
+        //Find correspond transmitter
+        for(auto k = 0; k < pKFi->miGPSTransmitter.size(); k++)
         {
-            continue;
-        }
-        //g2o::HyperGraph::Vertex* VP  = optimizer.vertex(pKFi->mnId);
-        g2o::HyperGraph::Vertex* vRT = optimizer.vertex(0);
+            if(pKFi->miGPSTransmitter[k] != TrmSpeed || pKFi->miGPSChannel[k] != 1)
+                continue;
+            else
+            {
+                if (pKFi->mnId > maxKFid || pKFi->miGPSDirection[k].x() == 0.0)
+                    continue;
 
-        if( !vRT )
-        {
-            cout << "Error" << ", "<< vRT <<endl;
-            continue;
-        }
+                //if(num %5 !=0)   ///Strategy of Initialization   1 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 1 ....
+                //{
+                //    continue;
+                //}
+                //g2o::HyperGraph::Vertex* VP  = optimizer.vertex(pKFi->mnId);
+                g2o::HyperGraph::Vertex* vRT = optimizer.vertex(0);
 
-        EdgeiGPSSE3Graph* ei = new EdgeiGPSSE3Graph();
-        //ei->setVertex(0,dynamic_cast<g2o::OptimizableGraph::Vertex*>(VP));
-        ei->setVertex(0,dynamic_cast<g2o::OptimizableGraph::Vertex*>(vRT));
-        ei->setMeasurement(pKFi->miGPSDirection[j]);
-        ei->setInformation(Eigen::Matrix3d::Identity());
-        ei->Tcw = g2o::SE3Quat(Converter::toSE3Quat(pKFi->GetPose()));
-        optimizer.addEdge(ei);
-        vpei.push_back(ei);
-        num2 ++;
+                if( !vRT )
+                {
+                    cout << "Error" << ", "<< vRT <<endl;
+                    continue;
+                }
+
+                cout << "pKFi->mTimeStamps         = " << pKFi->mTimeStamp<<endl;
+                cout << "pKFi->miGPSChannel[k]         = " << pKFi->miGPSChannel[k]<<endl;
+                cout << "pKFi->miGPSTransmitter[k] = " << pKFi->miGPSTransmitter[k]<<endl;
+                cout << "pKFi->miGPSDirection[k]   = " << pKFi->miGPSDirection[k].transpose()<<endl;
+
+                EdgeiGPSSE3Graph* ei = new EdgeiGPSSE3Graph();
+                //ei->setVertex(0,dynamic_cast<g2o::OptimizableGraph::Vertex*>(VP));
+                ei->setVertex(0,dynamic_cast<g2o::OptimizableGraph::Vertex*>(vRT));
+                ei->setMeasurement(pKFi->miGPSDirection[k]);
+                ei->setInformation(Eigen::Matrix3d::Identity());
+                ei->Tcw = g2o::SE3Quat(Converter::toSE3Quat(pKFi->GetPose()));
+                optimizer.addEdge(ei);
+                vpei.push_back(ei);
+                num2 ++;   //Need enough number of Direction for estimation
+            }
+        }
     }
-    if(num2 >=10)
-    {
+
+    //if(num2 >=5)
+    //{
         //std::cout << "start optimization" << std::endl;
         optimizer.initializeOptimization();
-        optimizer.setVerbose(false);
+        optimizer.setVerbose(true);
         optimizer.optimize(10);
         //std::cout << "end optimization" << std::endl;
 
@@ -5987,7 +6081,8 @@ void Optimizer::iGPSDirectionOptimization(Map *pMap,Eigen::Matrix4d& Twc, int Ch
         Twc.block<3,3>(0,0) = RT_inverse.rotation().toRotationMatrix();
         Twc.block<3,1>(0,3) = RT_inverse.translation();
 
-    }
+    //}
+    cout<< "End iGPSDirection Initialization" <<endl;
     return;
 }
 
@@ -9130,5 +9225,167 @@ void Optimizer::OptimizeEssentialGraph4DoF(Map* pMap, KeyFrame* pLoopKF, KeyFram
     }
     pMap->IncreaseChangeIndex();
 }
+
+void Optimizer::addiGPSDirectionPoseOptimizationEdge(g2o::SparseOptimizer& optimizer,Frame* pKFi,vector<cv::Mat>& vTci,vector<EdgeiGPSDir6DoFPose*>& ep,double infoWeight)
+{
+    if(pKFi->miGPSDirection.empty())
+        return;
+
+    //cout<< "mTimeStamp = " << pKFi->mTimeStamp <<endl;
+    for(int j = 0; j < pKFi->miGPSDirection.size(); j ++)
+    {
+        int channel = pKFi->miGPSChannel[j];
+        Eigen::Vector3d Dir = pKFi->miGPSDirection[j];
+        int Trm = pKFi->miGPSTransmitter[j];
+        int i = 0;
+        identifyTransmitter(Trm,i);
+        //if(i == 1|| i ==2)
+        //    continue;
+
+        int td = abs(pKFi->miGPStime[j] - pKFi->mTimeStamp*1e9);
+
+        EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose();
+        e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(0)));
+        g2o::SE3Quat gTci = Converter::toSE3Quat(vTci[i]);
+        e->Dir = Dir;
+        e->Tci = gTci;
+        e->channel = channel;
+        e->miGPSReceive = pKFi->miGPSReceive;
+        //cout << "Time = " << pKFi->mTimeStamp*1e9 <<endl;
+        //cout << "channel = " << channel <<endl;
+        //cout << "GT = " << (gTci.rotation().toRotationMatrix()*Dir).transpose() <<endl;
+
+        const g2o::VertexSE3Expmap * v1 = static_cast<const g2o::VertexSE3Expmap*>(optimizer.vertex(0));    //Tcw
+        Eigen::Matrix4d Twc = Converter::toMatrix4d(Converter::toCvMat(v1->estimate().inverse()));
+        Eigen::Vector3d iGPSPosition = gTci.translation();
+        Eigen::Vector4d iGPSPosInCam4d = Eigen::Vector4d( pKFi->miGPSReceive[channel].x(), pKFi->miGPSReceive[channel].y(),pKFi->miGPSReceive[channel].z() , 1.0);
+        Eigen::Vector4d iGPSPosition4d = Twc * iGPSPosInCam4d;
+        Eigen::Vector3d iGPSPosition3d = iGPSPosition4d.block<3,1>(0,0);
+        Eigen::Vector3d measurement = (iGPSPosition3d-iGPSPosition)/(iGPSPosition3d-iGPSPosition).norm();
+        //cout << "measurement = " << measurement.transpose() <<endl;
+
+        Eigen::Matrix<double, 4, 4> inforMatrix = Eigen::Matrix<double, 4, 4>::Identity();
+        inforMatrix = infoWeight * inforMatrix;
+        e->setInformation(inforMatrix);
+
+        g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+        e->setRobustKernel(rk);
+        rk->setDelta(5.991);
+
+        ep.push_back(e);
+        optimizer.addEdge(e);
+    }
+    return;
+}
+
+template<class T>
+void Optimizer::addiGPSDirectionEdge(g2o::SparseOptimizer& optimizer,T lLocalKeyFrames,vector<cv::Mat>& vTci,vector<EdgeiGPSDir6DoFPose*>& ep,long infoWeight)
+{
+    for(auto lit=lLocalKeyFrames.begin(), lend=lLocalKeyFrames.end(); lit!=lend; lit++)
+    {
+        KeyFrame* pKFi = *lit;
+        if(pKFi->isBad())
+            continue;
+
+        if(pKFi->miGPSDirection.empty())
+            continue;
+
+        //cout<< "mTimeStamp = " << pKFi->mTimeStamp <<endl;
+        for(int j = 0; j < pKFi->miGPSDirection.size(); j ++)
+        {
+            int channel = pKFi->miGPSChannel[j];
+            Eigen::Vector3d Dir = pKFi->miGPSDirection[j];
+            int Trm = pKFi->miGPSTransmitter[j];
+            int i = 0;
+            identifyTransmitter(Trm,i);
+            //if(i == 1|| i ==2)
+            //    continue;
+
+            int td = abs(pKFi->miGPStime[j] - pKFi->mTimeStamp*1e9);
+            int weight = 1;
+            calculateiGPSDirectionWeight(td,weight);
+
+            EdgeiGPSDir6DoFPose *e = new EdgeiGPSDir6DoFPose();
+            e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(pKFi->mnId)));
+            g2o::SE3Quat gTci = Converter::toSE3Quat(vTci[i]);
+            e->Dir = Dir;
+            e->Tci = gTci;
+            e->channel = channel;
+            e->miGPSReceive = pKFi->miGPSReceive;
+            cout << "Time = " << pKFi->mTimeStamp*1e9 <<endl;
+            cout << "channel = " << channel <<endl;
+            cout << "GT = " << (gTci.rotation().toRotationMatrix()*Dir).transpose() <<endl;
+
+            const g2o::VertexSE3Expmap * v1 = static_cast<const g2o::VertexSE3Expmap*>(optimizer.vertex(pKFi->mnId));    //Tcw
+            Eigen::Matrix4d Twc = Converter::toMatrix4d(Converter::toCvMat(v1->estimate().inverse()));
+            Eigen::Vector3d iGPSPosition = gTci.translation();
+            Eigen::Vector4d iGPSPosInCam4d = Eigen::Vector4d( pKFi->miGPSReceive[channel].x(), pKFi->miGPSReceive[channel].y(),pKFi->miGPSReceive[channel].z() , 1.0);
+            Eigen::Vector4d iGPSPosition4d = Twc * iGPSPosInCam4d;
+            Eigen::Vector3d iGPSPosition3d = iGPSPosition4d.block<3,1>(0,0);
+            Eigen::Vector3d measurement = (iGPSPosition3d-iGPSPosition)/(iGPSPosition3d-iGPSPosition).norm();
+            cout << "measurement = " << measurement.transpose() <<endl;
+
+            Eigen::Matrix<double, 4, 4> inforMatrix = Eigen::Matrix<double, 4, 4>::Identity();
+            inforMatrix = infoWeight * inforMatrix;
+            e->setInformation(inforMatrix);
+
+            //g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+            //e->setRobustKernel(rk);
+            //rk->setDelta(5.991);
+
+            ep.push_back(e);
+            optimizer.addEdge(e);
+        }
+    }
+    return;
+}
+
+void Optimizer::identifyTransmitter(int Trm,int &i)
+{
+    switch(Trm)
+    {
+        case 1800:
+            i = 0;
+            break;
+        case 1900:
+            i = 1;
+            break;
+        case 2000:
+            i = 2;
+            break;
+    }
+    return;
+}
+
+void Optimizer::calculateiGPSDirectionWeight(int td, int& weight)
+{
+    switch(td)
+    {
+        case 0:
+            weight = 64;
+            break;
+        case 1:
+            weight = 32;
+            break;
+        case 2:
+            weight = 16;
+            break;
+        case 3:
+            weight = 8;
+            break;
+        case 4:
+            weight = 4;
+            break;
+        case 5:
+            weight = 2;
+            break;
+        default:
+            weight = 1;
+    }
+    return;
+}
+
+
+
 
 } //namespace ORB_SLAM

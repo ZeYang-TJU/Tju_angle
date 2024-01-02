@@ -287,11 +287,13 @@ public:
     bool mbHasHessian;
     cv::Mat mHessianPose;
 
-    vector<int> mChannel;
+    vector<int> miGPSChannel;
     vector<Eigen::Vector3d> miGPSDirection;
-    vector<Eigen::Vector2d> miGPSDirAngle;
-    map<int,Eigen::Vector3d> mmiGPSChDir;
-    map<int,Eigen::Vector2d> mmiGPSChDirAngle;
+    vector<int> miGPSTransmitter;
+    vector<double> miGPStime;
+    map<int, Eigen::Vector3d> miGPSReceive;
+
+
     // The following variables need to be accessed trough a mutex to be thread safe.
 protected:
 

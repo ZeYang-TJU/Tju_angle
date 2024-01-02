@@ -1,0 +1,155 @@
+%YAML:1.0
+
+#--------------------------------------------------------------------------------------------
+# Camera Parameters. Adjust them!
+#--------------------------------------------------------------------------------------------
+Camera.type: "PinHole"
+
+# Camera calibration and distortion parameters (OpenCV) 
+Camera.fx: 1196.9501953125
+Camera.fy: 1196.9501953125
+Camera.cx: 630.44177246093
+Camera.cy: 538.44140625
+
+Camera.k1: 0.0
+Camera.k2: 0.0
+Camera.p1: 0.0
+Camera.p2: 0.0
+
+Camera.bFishEye: 0
+
+Camera.width: 1216
+Camera.height: 1024
+
+# Camera frames per second 
+Camera.fps: 15.0
+
+# stereo baseline times fx
+Camera.bf: 248.7644925593461
+
+# Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
+Camera.RGB: 1
+
+# Close/Far threshold. Baseline times.
+ThDepth: 35.0
+
+iGPS.Path: "../../data/East/E01/E01-Direction.txt"
+iGPS.Channel: 1
+iGPS.RotationSpeed: 1800
+Twi: !!opencv-matrix
+   rows: 4
+   cols: 4
+   dt: f
+   data: [-0.105506861720832, 0.994143035047827, -0.0234078618356194, 1.62386841834208,
+          -0.994411420758988, -0.105566158038143, -0.00130864095826703, 1.33371467745189,
+          -0.00377205433591350, 0.0231389745442623, 0.999725141958092, 0.111320252495958,
+          0, 0, 0, 1]
+Twi2: !!opencv-matrix
+   rows: 4
+   cols: 4
+   dt: f
+   data: [0.990863621450323, 0.133671016991985, 0.0179260397935334, 1.35859441610326,
+          -0.133909672882824, 0.990910309712429, 0.0128435826011713, -1.42298397001751,
+          -0.0160462828956084, -0.0151267088934295, 0.999756820173430, -0.00422333543725589,
+          0, 0, 0, 1]
+Twi3: !!opencv-matrix
+   rows: 4
+   cols: 4
+   dt: f
+   data: [-0.0363806317085749, 0.999337691067247, 0.000792999916887126, 0.801011058274270,
+          -0.999331264227548, -0.0363774601174498, -0.00370199038014495, -3.91719250751805,
+          -0.00367069119599751, -0.000927150358083893, 0.999992833183497, 0.133114018321098,
+          0, 0, 0, 1]
+#--------------------------------------------------------------------------------------------
+# Stereo Rectification. Only if you need to pre-rectify the images.
+# Camera.fx, .fy, etc must be the same as in LEFT.P
+#--------------------------------------------------------------------------------------------
+LEFT.height: 1024
+LEFT.width: 1216
+## Original D and K
+LEFT.D: !!opencv-matrix
+   rows: 1
+   cols: 5
+   dt: d
+   data:[-1.0161e-002, 4.7887e-004, -1.0891e-005, 2.2123e-005, 5.4677e-005]
+LEFT.K: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [1202.28985, 0.0, 604.55072, 0.0, 1202.28985, 552.11594, 0.0, 0.0, 1.0]
+LEFT.R:  !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [0.99983163645049, -0.01288781704890533, -0.01306150544344492,
+          0.01289949382509471, 0.9999164698871286, 0.0008101280882731345,
+          0.01304997363183312, -0.0009784785010467979, 0.9999143667174861]
+LEFT.P:  !!opencv-matrix
+   rows: 3
+   cols: 4
+   dt: d
+   data: [1196.950149432795, 0, 630.4417724609375, 0,
+          0, 1196.950149432795, 538.44140625, 0,
+          0, 0, 1, 0]
+
+RIGHT.height: 1024
+RIGHT.width: 1216
+RIGHT.D: !!opencv-matrix
+   rows: 1
+   cols: 5
+   dt: d
+   data:[-1.0395e-002, 6.3351e-004, -3.2425e-005, 1.1246e-004, 7.6696e-006]
+RIGHT.K: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [1202.63768, 0.0, 611.47826, 0.0, 1202.63768, 524.60869, 0.0, 0.0, 1.0]
+RIGHT.R:  !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [0.9997483704770027, 0.01475480596849653, -0.01689649163021096,
+          -0.01476991224185718, 0.9998906227211359, -0.0007696016545984356,
+          0.01688328821484746, 0.001018967698674677, 0.9998569479099915]
+RIGHT.P:  !!opencv-matrix
+   rows: 3
+   cols: 4
+   dt: d
+   data: [1196.950149432795, 0, 630.4417724609375, 248.7644925593461,
+          0, 1196.950149432795, 538.44140625, 0,
+          0, 0, 1, 0]
+
+#--------------------------------------------------------------------------------------------
+# ORB Parameters
+#--------------------------------------------------------------------------------------------
+
+# ORB Extractor: Number of features per image
+ORBextractor.nFeatures: 1200
+
+# ORB Extractor: Scale factor between levels in the scale pyramid 	
+ORBextractor.scaleFactor: 1.2
+
+# ORB Extractor: Number of levels in the scale pyramid	
+ORBextractor.nLevels: 8
+
+# ORB Extractor: Fast threshold
+# Image is divided in a grid. At each cell FAST are extracted imposing a minimum response.
+# Firstly we impose iniThFAST. If no corners are detected we impose a lower value minThFAST
+# You can lower these values if your images have low contrast			
+ORBextractor.iniThFAST: 20
+ORBextractor.minThFAST: 7
+
+#--------------------------------------------------------------------------------------------
+# Viewer Parameters
+#--------------------------------------------------------------------------------------------
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize:2
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3
+Viewer.ViewpointX: 0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -1.8
+Viewer.ViewpointF: 500
+

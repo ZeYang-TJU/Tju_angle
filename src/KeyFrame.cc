@@ -63,7 +63,8 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB):
     mpCamera(F.mpCamera), mpCamera2(F.mpCamera2),
     mvLeftToRightMatch(F.mvLeftToRightMatch),mvRightToLeftMatch(F.mvRightToLeftMatch),mTlr(F.mTlr.clone()),
     mvKeysRight(F.mvKeysRight), NLeft(F.Nleft), NRight(F.Nright), mTrl(F.mTrl), mnNumberOfOpt(0),
-    miGPSDirection(F.miGPSDirection),miGPSDirAngle(F.miGPSDirAngle),mmiGPSChDir(F.mmiGPSChDir),mmiGPSChDirAngle(F.mmiGPSChDirAngle)
+    miGPSDirection(F.miGPSDirection),miGPSChannel(F.miGPSChannel),miGPSTransmitter(F.miGPSTransmitter),miGPStime(F.miGPStime),miGPSReceive(F.miGPSReceive)
+
 {
 
     imgLeft = F.imgLeft.clone();

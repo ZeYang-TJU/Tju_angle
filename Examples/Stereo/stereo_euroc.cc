@@ -33,6 +33,8 @@ void LoadImages(const string &strPathLeft, const string &strPathRight, const str
 
 int LoadiGPSDirection(vector<double> &vTimestampsiGPS,ORB_SLAM3::iGPS::Direction* iGPSDirection,const string &strSettingsFile);
 
+int LoadFTDirection(vector<double> &vTimestampsiGPS,ORB_SLAM3::iGPS::Direction* iGPSDirection,const string &strSettingsFile);
+
 int LoadCamPose(vector<double> &vTimeStampsGT,vector<Eigen::VectorXf> &vCameraPose,const string &strFilePath);
 
 int main(int argc, char **argv)
@@ -121,9 +123,9 @@ int main(int argc, char **argv)
     cv::initUndistortRectifyMap(K_l,D_l,R_l,P_l.rowRange(0,3).colRange(0,3),cv::Size(cols_l,rows_l),CV_32F,M1l,M2l);
     cv::initUndistortRectifyMap(K_r,D_r,R_r,P_r.rowRange(0,3).colRange(0,3),cv::Size(cols_r,rows_r),CV_32F,M1r,M2r);
 
-    ORB_SLAM3::iGPS::Direction* iGPSDirection = new ORB_SLAM3::iGPS::Direction[10000];
+    ORB_SLAM3::iGPS::Direction* iGPSDirection = new ORB_SLAM3::iGPS::Direction[50000];
     vector<double> vTimestampsiGPSDir;
-    int ret = LoadiGPSDirection(vTimestampsiGPSDir,iGPSDirection,argv[2]);
+    int ret = LoadFTDirection(vTimestampsiGPSDir,iGPSDirection,argv[2]);
     if(1 == ret)
     {
         cout << "Read fsSettings fails";
@@ -135,11 +137,11 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    const string strFilePath = "./MH05_GT.txt";
+    const string strFilePath = "./E/E01.txt";   //GT File Path
     cout << "strFilePath = " << strFilePath <<endl;
     vector<double> vTimeStampsGT; //Camera Pose TimeStamps
     vector<Eigen::VectorXf> vCameraPose;
-    ret = LoadCamPose(vTimeStampsGT,vCameraPose,strFilePath);
+    ret = LoadCamPose(vTimeStampsGT,vCameraPose,strFilePath);   //Notice!: EuRoC GT form is different from Tum, code needs change.
     if(2 == ret)
     {
         cout<< "Read CamPoseFile fails";
@@ -327,16 +329,16 @@ int LoadCamPose(vector<double> &vTimeStampsGT,vector<Eigen::VectorXf> &vCameraPo
 
             double t, x, y, z, qw, qx, qy, qz;  // Frame
             Eigen::VectorXf CameraPose(7);
-            ss >> t; ss >> x; ss >> y; ss >> z; ss >> qw; ss >> qx; ss >> qy; ss >> qz;  //Euler Angle
-            //cout << "t = " << t <<endl;
-            //cout << "x = " << x <<endl;
-            //cout << "y = " << y <<endl;
-            //cout << "z = " << z <<endl;
-            //cout << "qw = " << qw <<endl;
-            //cout << "qx = " << qx <<endl;
-            //cout << "qy = " << qy <<endl;
-            //cout << "qz = " << qz <<endl;
-            CameraPose <<x,y,z,qw,qx,qy,qz;
+
+            /* If EuRoC dataset*/
+            //ss >> t; ss >> x; ss >> y; ss >> z; ss >> qw; ss >> qx; ss >> qy; ss >> qz;
+
+            /*
+             * If FT dataset*/
+            ss >> t; ss >> x; ss >> y; ss >> z; ss >> qx; ss >> qy; ss >> qz; ss >> qw;   //Tum form
+
+            //cout << "time tx ty tz qx qy qz qw= " << t << " " << tx << " " << ty << " " << tz << " " << qx << " " << qy << " " << qz << " " << qw << " " << tx <<endl;
+            CameraPose <<x,y,z,qx,qy,qz,qw;
             vTimeStampsGT.push_back(t);
             vCameraPose.push_back(CameraPose);
         }
@@ -385,7 +387,6 @@ int LoadiGPSDirection(vector<double> &vTimestampsiGPS,ORB_SLAM3::iGPS::Direction
     if(!fTimes)
         return 2;
     long index = 0;
-
     while(!fTimes.eof()) {
 
         string s;
@@ -417,5 +418,77 @@ int LoadiGPSDirection(vector<double> &vTimestampsiGPS,ORB_SLAM3::iGPS::Direction
     cout << "end read iGPS data" << endl;
     //for(int i = 0 ; i < 5000 ; i ++ )
     //cout << "iGPSDirection = " << iGPSDirection[i].channel << " "<< iGPSDirection[i].transmitter << " " << iGPSDirection[i].time << " " << iGPSDirection[i].dir.transpose() << " " << iGPSDirection[i].dirAngle.transpose() <<endl;
+    return 0;
+}
+
+//iGPSDirection - ChannelTransmitterTimeDirection
+int LoadFTDirection(vector<double> &vTimestampsiGPS,ORB_SLAM3::iGPS::Direction* iGPSDirection,const string &strSettingsFile)
+{
+    int nChannel,nRotationSpeed;
+    string nPath;
+    cv::FileStorage fSettings(strSettingsFile, cv::FileStorage::READ);
+    if(fSettings.isOpened())
+    {
+        cv::FileNode node = fSettings["iGPS.Channel"];
+        if(!node.empty() && node.isInt())
+        {
+            nChannel = node.operator int();
+        }
+        node = fSettings["iGPS.RotationSpeed"];
+        if(!node.empty() && node.isInt())
+        {
+            nRotationSpeed = node.operator int();
+        }
+        node = fSettings["iGPS.Path"];
+        if(!node.empty() && node.isString())
+        {
+            node>> nPath;
+            cout << " nPath = " << nPath <<endl;
+        }
+    }
+    else
+        return 1;
+    //cout << "nChannel = " << nChannel<< endl;
+    //cout << "nRotationSpeed = "  << nRotationSpeed << endl;
+    cout << "iGPS Data FilePath: " << nPath << endl;
+    cout << "start loading igps" << endl;
+    //vTimestampsiGPS.reserve(5000);
+    ifstream fTimes;
+    fTimes.open(nPath);
+    if(!fTimes)
+        return 2;
+    long index = 0;
+    while(!fTimes.eof()) {
+
+        string s;
+        getline(fTimes, s);
+        if(s[0] == '#')
+            continue;
+
+        if (!s.empty())
+        {
+            stringstream ss;
+            ss << s;
+
+            double trm, t, d1, d2, d3, a1, a2;  // Frame
+            int ch;
+            //ss >> ch; ss >> trm;
+            ss >> ch; ss>> trm; ss >> t;  ss>>d1; ss >> d2; ss >> d3;
+            a1 = 0.0;
+            a2 = 0.0;
+            iGPSDirection[index].channel = ch;
+            iGPSDirection[index].transmitter = trm;
+            iGPSDirection[index].time = t;
+            iGPSDirection[index].dir = Eigen::Vector3d(d1,d2,d3);
+            iGPSDirection[index].dirAngle = Eigen::Vector2d(a1,a2);
+
+            vTimestampsiGPS.push_back(t);
+            //iGPSPosition.push_back(PositionCoord);
+        }
+        index++;
+    }
+    cout << "end read iGPS data" << endl;
+    //for(int i = 0 ; i < 20000 ; i ++ )
+    //    cout << "iGPSDirection = " << iGPSDirection[i].channel << " "<< iGPSDirection[i].transmitter << " " << iGPSDirection[i].time << " " << iGPSDirection[i].dir.transpose() << " " << iGPSDirection[i].dirAngle.transpose() <<endl;
     return 0;
 }

@@ -159,17 +159,32 @@ void LocalMapping::Run()
                         b_doneLBA = true;
                     }
                     //else if(mbiGPSDirInitialized)
-                    else if(mbiGPSDirInitialized && (mpAtlas->KeyFramesInMap())>=40 && mbMonocular && !mvTci.empty())
-                    {
-                        Optimizer::LocaliGPSDirBA(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA,iGPSPoseScale,mvTci,mvTcw,mbScaleFixFlag,mbMonocular,mlKF);
-                        mbScaleFixFlag = true;
-                        b_doneLBA = true;
-                    }
-                    else if(mbiGPSDirInitialized && !mvTci.empty())
-                    {
-                        Optimizer::LocaliGPSDirBA(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA,iGPSPoseScale,mvTci,mvTcw,mbScaleFixFlag, mbMonocular,mlKF);
-                        b_doneLBA = true;
-                    }
+                    //else if(mbiGPSDirInitialized && (mpAtlas->KeyFramesInMap())>=40 && mbMonocular && !mvTci.empty())
+                    //{
+                    //    Optimizer::LocaliGPSDirBA(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA,iGPSPoseScale,mvTci,mvTcw,mbScaleFixFlag,mbMonocular,mlKF);
+                    //    mbScaleFixFlag = true;
+                    //    b_doneLBA = true;
+                    //}
+
+                    //else if(!mbiGPSDirInitialized && !mvTci.empty())   // try to global BA
+                    //{
+                    //    bool ret = Optimizer::GlobalVisualiGPSBundleAdjustemnt(mpCurrentKeyFrame->GetMap(),mvTci,mbMonocular,20,1);
+                    //    if(ret == true)
+                    //    {
+                    //        mbiGPSDirInitialized = true;
+                    //        b_doneLBA = true;
+                    //    }
+                    //    else
+                    //    {
+                    //        Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA);
+                    //        b_doneLBA = true;
+                    //    }
+                    //}
+                    //else if(mbiGPSDirInitialized && !mvTci.empty())
+                    //{
+                    //    Optimizer::LocaliGPSDirBA(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA,iGPSPoseScale,mvTci,mvTcw,mbScaleFixFlag, mbMonocular,mlKF,1e7);
+                    //    b_doneLBA = true;
+                    //}
                     else
                     {
                         Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpCurrentKeyFrame->GetMap(),num_FixedKF_BA,num_OptKF_BA,num_MPs_BA,num_edges_BA);
@@ -205,7 +220,7 @@ void LocalMapping::Run()
                         InitializeIMU(1e2, 1e5, true);
                 }
 
-                //if(mbiGPSDirection)
+                //if(mbiGPSDirection)   //estimate iGPS pose in camera frame, 容易陷入极小值，收敛错误
                 //{
                 //    InitializeiGPSDir(mvTcw);
                 //}
@@ -309,7 +324,9 @@ void LocalMapping::Run()
 
         usleep(3000);
     }
-    Optimizer::GlobalVisualiGPSBundleAdjustemnt(mpCurrentKeyFrame->GetMap(),mvTci,mbMonocular,20);
+
+    //暂时隐藏
+    Optimizer::GlobalVisualiGPSBundleAdjustemnt(mpCurrentKeyFrame->GetMap(),mvTci,mbMonocular,20, 1e9);
     SetFinish();
 }
 
@@ -1494,9 +1511,11 @@ void LocalMapping::InitializeiGPSDir(vector<Eigen::Matrix4d>& Tcw)
     if(vpKF.size()<nMinKF)
         return;
 
+    //cout<< "mpCurrentKeyFrame->mTimeStamp=" << mpCurrentKeyFrame->mTimeStamp<<endl;
+    //cout<< "mFirstTs=" << mFirstTs<<endl;
 
-    mFirstTs=vpKF.front()->mTimeStamp;
-    if((mpCurrentKeyFrame->mTimeStamp-mFirstTs)<minTime)
+    mFirstTs=vpKF.front()->mTimeStamp*1e6;
+    if((mpCurrentKeyFrame->mTimeStamp*1e6-mFirstTs)<minTime)
         return;
 
     while(CheckNewKeyFrames())
@@ -1510,29 +1529,39 @@ void LocalMapping::InitializeiGPSDir(vector<Eigen::Matrix4d>& Tcw)
 
     mInitTime = mpTracker->mLastFrame.mTimeStamp-vpKF.front()->mTimeStamp;
 
-    Eigen::Matrix4d Twc = Eigen::Matrix4d::Identity();
     //Eigen::Matrix4d Tcw = Eigen::Matrix4d::Identity();
     //initial estimation
+
     for(auto i = 0; i < mvTci.size(); i++)
     {
-        //int ch = mpCurrentKeyFrame->mChannel[i];
-        Optimizer::iGPSDirectionOptimization(mpAtlas->GetCurrentMap(),Twc, i+1);
-        Eigen::Matrix3d Rwc = Twc.block<3,3>(0,0);
-        Eigen::Vector3d twc = Twc.block<3,1>(0,3);
+        Eigen::Matrix4d Twc = Eigen::Matrix4d::Identity();
+
+        //int ch = mpCurrentKeyFrame->miGPSChannel[i];
+        switch(i){
+            case 0:
+                Optimizer::iGPSDirectionOptimization(mpAtlas->GetCurrentMap(),Twc, 1800);
+                break;
+            case 1:
+                Optimizer::iGPSDirectionOptimization(mpAtlas->GetCurrentMap(),Twc, 1900);
+                break;
+            case 2:
+                Optimizer::iGPSDirectionOptimization(mpAtlas->GetCurrentMap(),Twc, 2000);
+                break;
+        }
+
+        //Optimizer::iGPSDirectionOptimization(mpAtlas->GetCurrentMap(),Twc, i+1);
+        //Eigen::Matrix3d Rwc = Twc.block<3,3>(0,0);
+        //Eigen::Vector3d twc = Twc.block<3,1>(0,3);
 
         //cout << "Tcw = "<< Twc.inverse().block<3,1>(0,3).transpose() <<endl;
         mvTcw.push_back(Twc.inverse());
-
         if(Twc(0,3) != 0.0)
         {
             //Successful initialization
             //cout<< "iGPS Initialization Success" <<endl;
-            //cout << "Twc = "<< Twc <<endl;
-            cout << "Channel " << i+1 <<" iGPS transmitter initialization Success, Tcw = "<< Twc.inverse() <<endl;
-            //cout<< "Initial iGPS R = " << R <<endl;
-            //cout<< "Initial iGPS t = " << t <<endl;
-            mbiGPSDirInitialized = true;
-            mbiGPSDirection = false;
+            cout << "Transm " << i <<" iGPS transmitter initialization Success, Tcw = "<< Twc.inverse() <<endl;
+            //mbiGPSDirInitialized = true;
+            //mbiGPSDirection = false;
         }
     }
 
